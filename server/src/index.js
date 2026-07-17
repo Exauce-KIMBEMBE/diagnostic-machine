@@ -15,30 +15,52 @@ import { initializeDatabase } from "./config/initDatabase.js";
 const app = express();
 const server = http.createServer(app);
 
-const clientOrigin =
-  process.env.CLIENT_ORIGIN || "http://localhost:5173";
+// =====================================================
+// CONFIGURATION CORS
+// =====================================================
+
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://diagnostic-machine-fs2m.onrender.com",
+];
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Autorise les requêtes sans origine (ESP32, Postman, etc.)
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(
+      new Error(`Origine non autorisée par CORS : ${origin}`)
+    );
+  },
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+  credentials: true,
+};
+
+// =====================================================
+// SOCKET.IO
+// =====================================================
 
 const io = new Server(server, {
-  cors: {
-    origin: clientOrigin,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
-  },
+  cors: corsOptions,
 });
 
 // Rendre Socket.IO accessible dans les contrôleurs
 app.set("io", io);
 
-// Middlewares
-app.use(
-  cors({
-    origin: clientOrigin,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
-  })
-);
+// =====================================================
+// MIDDLEWARES
+// =====================================================
 
+app.use(cors(corsOptions));
 app.use(express.json());
 
-// Route principale
+// =====================================================
+// ROUTE PRINCIPALE
+// =====================================================
+
 app.get("/", (req, res) => {
   res.json({
     success: true,
@@ -46,12 +68,18 @@ app.get("/", (req, res) => {
   });
 });
 
-// Routes de l’API
+// =====================================================
+// ROUTES API
+// =====================================================
+
 app.use("/api", machineRoutes);
 app.use("/api/alerts", alertRoutes);
 app.use("/api/thresholds", thresholdRoutes);
 
-// Connexion des clients Socket.IO
+// =====================================================
+// SOCKET.IO
+// =====================================================
+
 io.on("connection", (socket) => {
   console.log("Client connecté :", socket.id);
 
@@ -61,6 +89,10 @@ io.on("connection", (socket) => {
 });
 
 const PORT = Number(process.env.PORT || 3001);
+
+// =====================================================
+// DEMARRAGE SERVEUR
+// =====================================================
 
 async function startServer() {
   try {
@@ -81,7 +113,7 @@ async function startServer() {
       console.log(" Diagnostic Machine Server");
       console.log("====================================");
       console.log(`HTTP     : http://localhost:${PORT}`);
-      console.log(`Client   : ${clientOrigin}`);
+      console.log(`Clients  : ${allowedOrigins.join(", ")}`);
       console.log("SocketIO : OK");
       console.log("MySQL    : OK");
       console.log("Tables   : OK");
