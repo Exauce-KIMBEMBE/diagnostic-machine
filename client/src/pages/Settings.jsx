@@ -1,79 +1,193 @@
-import { useEffect, useState } from "react";
-import { ArrowLeft, Settings2 } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useState,
+} from "react";
+
+import {
+  ArrowLeft,
+  RefreshCw,
+  Settings2,
+} from "lucide-react";
 
 import ThresholdForm from "../components/ThresholdForm.jsx";
-import { getThresholds } from "../services/api.js";
+
+import {
+  getThresholds,
+} from "../services/api.js";
+
+const MACHINE_ID = 1;
+
+function extractArray(response) {
+  const data =
+    response?.data?.data ??
+    response?.data ??
+    response;
+
+  return Array.isArray(data)
+    ? data
+    : [];
+}
+
+function normalizeThreshold(threshold) {
+  if (!threshold) {
+    return null;
+  }
+
+  return {
+    ...threshold,
+
+    id:
+      threshold.id ??
+      threshold.thresholdId,
+
+    machineId:
+      Number(
+        threshold.machineId ??
+          threshold.machine_id ??
+          MACHINE_ID
+      ) || MACHINE_ID,
+
+    source:
+      threshold.source ?? "",
+
+    parameterName:
+      threshold.parameterName ??
+      threshold.parameter_name ??
+      "",
+
+    minimumValue:
+      threshold.minimumValue ??
+      threshold.minimum_value ??
+      null,
+
+    maximumValue:
+      threshold.maximumValue ??
+      threshold.maximum_value ??
+      null,
+
+    warningValue:
+      threshold.warningValue ??
+      threshold.warning_value ??
+      null,
+
+    criticalValue:
+      threshold.criticalValue ??
+      threshold.critical_value ??
+      null,
+
+    unit:
+      threshold.unit ?? "",
+  };
+}
 
 export default function Settings({
   onBack,
 }) {
-  const [thresholds, setThresholds] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [thresholds, setThresholds] =
+    useState([]);
 
-  async function loadThresholds() {
-    try {
-      setLoading(true);
-      setError("");
+  const [loading, setLoading] =
+    useState(true);
 
-      const response = await getThresholds();
+  const [error, setError] =
+    useState("");
 
-      setThresholds(
-        Array.isArray(response.data)
-          ? response.data
-          : []
-      );
-    } catch (requestError) {
-      console.error(
-        "Erreur chargement des seuils :",
-        requestError
-      );
+  const loadThresholds = useCallback(
+    async () => {
+      try {
+        setLoading(true);
+        setError("");
 
-      setError(
-        requestError.response?.data?.message ||
-          "Impossible de charger les seuils"
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
+        const response =
+          await getThresholds(MACHINE_ID);
+
+        const receivedThresholds =
+          extractArray(response)
+            .map(normalizeThreshold)
+            .filter(Boolean);
+
+        setThresholds(
+          receivedThresholds
+        );
+      } catch (requestError) {
+        console.error(
+          "Erreur chargement des seuils :",
+          requestError
+        );
+
+        setError(
+          requestError.response?.data
+            ?.message ||
+            requestError.message ||
+            "Impossible de charger les seuils"
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     loadThresholds();
-  }, []);
+  }, [loadThresholds]);
 
-  function handleSaved(savedThreshold) {
-    setThresholds((previousThresholds) => {
-      const existingIndex =
-        previousThresholds.findIndex(
+  function handleSaved(
+    savedThresholdResponse
+  ) {
+    const savedThreshold =
+      normalizeThreshold(
+        savedThresholdResponse?.data
+          ?.data ??
+          savedThresholdResponse?.data ??
+          savedThresholdResponse
+      );
+
+    if (!savedThreshold) {
+      return;
+    }
+
+    setThresholds(
+      (previousThresholds) => {
+        const existingIndex =
+          previousThresholds.findIndex(
+            (item) =>
+              Number(item.id) ===
+              Number(savedThreshold.id)
+          );
+
+        if (existingIndex === -1) {
+          return [
+            ...previousThresholds,
+            savedThreshold,
+          ];
+        }
+
+        return previousThresholds.map(
           (item) =>
             Number(item.id) ===
             Number(savedThreshold.id)
+              ? {
+                  ...item,
+                  ...savedThreshold,
+                }
+              : item
         );
-
-      if (existingIndex === -1) {
-        return [
-          ...previousThresholds,
-          savedThreshold,
-        ];
       }
-
-      return previousThresholds.map((item) =>
-        Number(item.id) ===
-        Number(savedThreshold.id)
-          ? savedThreshold
-          : item
-      );
-    });
+    );
   }
 
-  function handleDeleted(thresholdId) {
-    setThresholds((previousThresholds) =>
-      previousThresholds.filter(
-        (item) =>
-          Number(item.id) !==
-          Number(thresholdId)
-      )
+  function handleDeleted(
+    thresholdId
+  ) {
+    setThresholds(
+      (previousThresholds) =>
+        previousThresholds.filter(
+          (item) =>
+            Number(item.id) !==
+            Number(thresholdId)
+        )
     );
   }
 
@@ -91,19 +205,42 @@ export default function Settings({
           </h1>
 
           <p>
-            Définis les valeurs minimales,
-            maximales, d’avertissement et critiques.
+            Définis les seuils minimaux,
+            maximaux, d’avertissement et
+            critiques de la machine.
           </p>
         </div>
 
-        <button
-          className="back-button"
-          type="button"
-          onClick={onBack}
-        >
-          <ArrowLeft size={18} />
-          Retour au tableau de bord
-        </button>
+        <div className="settings-actions">
+          <button
+            className="refresh-button"
+            type="button"
+            onClick={loadThresholds}
+            disabled={loading}
+          >
+            <RefreshCw
+              size={18}
+              className={
+                loading
+                  ? "icon-spinning"
+                  : ""
+              }
+            />
+
+            {loading
+              ? "Chargement..."
+              : "Actualiser"}
+          </button>
+
+          <button
+            className="back-button"
+            type="button"
+            onClick={onBack}
+          >
+            <ArrowLeft size={18} />
+            Retour au tableau de bord
+          </button>
+        </div>
       </header>
 
       {loading ? (
@@ -116,11 +253,20 @@ export default function Settings({
         <section className="dashboard-error">
           <strong>Erreur</strong>
           <p>{error}</p>
+
+          <button
+            className="retry-button"
+            type="button"
+            onClick={loadThresholds}
+          >
+            Réessayer
+          </button>
         </section>
       ) : null}
 
-      {!loading ? (
+      {!loading && !error ? (
         <ThresholdForm
+          machineId={MACHINE_ID}
           thresholds={thresholds}
           onSaved={handleSaved}
           onDeleted={handleDeleted}
