@@ -686,3 +686,32 @@ export { API_URL };
 .power-tooltip-row strong {
   color: var(--text-primary);
 }
+
+
+.metric-normal {
+  color: #10b981;
+}
+
+.metric-warning {
+  color: #f59e0b;
+}
+
+.metric-critical {
+  color: #ef4444;
+}
+
+.metric-offline {
+  color: #94a3b8;
+}
+
+.line-update {
+  margin: 18px 0 0;
+  padding-top: 14px;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.line-update strong {
+  color: var(--text-primary);
+}
