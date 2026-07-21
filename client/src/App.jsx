@@ -1,29 +1,56 @@
-import { useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import Dashboard from "./pages/Dashboard.jsx";
 import Settings from "./pages/Settings.jsx";
 
 import "./App.css";
 
-export default function App() {
-  const [currentPage, setCurrentPage] =
-    useState("dashboard");
+const PAGES = {
+  DASHBOARD: "dashboard",
+  SETTINGS: "settings",
+};
 
-  if (currentPage === "settings") {
-    return (
-      <Settings
-        onBack={() =>
-          setCurrentPage("dashboard")
-        }
-      />
-    );
-  }
+export default function App() {
+  const [currentPage, setCurrentPage] = useState(
+    PAGES.DASHBOARD
+  );
+
+  const openDashboard = useCallback(() => {
+    setCurrentPage(PAGES.DASHBOARD);
+  }, []);
+
+  const openSettings = useCallback(() => {
+    setCurrentPage(PAGES.SETTINGS);
+  }, []);
+
+  const currentView = useMemo(() => {
+    switch (currentPage) {
+      case PAGES.SETTINGS:
+        return (
+          <Settings
+            onBack={openDashboard}
+          />
+        );
+
+      case PAGES.DASHBOARD:
+      default:
+        return (
+          <Dashboard
+            onOpenSettings={
+              openSettings
+            }
+          />
+        );
+    }
+  }, [
+    currentPage,
+    openDashboard,
+    openSettings,
+  ]);
 
   return (
-    <Dashboard
-      onOpenSettings={() =>
-        setCurrentPage("settings")
-      }
-    />
+    <div className="app-shell">
+      {currentView}
+    </div>
   );
 }
