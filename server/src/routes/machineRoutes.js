@@ -9,16 +9,33 @@ import {
 
 const router = express.Router();
 
-// État actuel de la machine
+/*
+ * ===============================
+ * ETAT ACTUEL
+ * ===============================
+ */
+
 router.get("/state", getMachineState);
 
-// Réception des mesures envoyées par l’ESP32
+/*
+ * ===============================
+ * MESURES ENVOYÉES PAR L'ESP32
+ * ===============================
+ */
+
 router.post("/measurements", receiveMeasurements);
 
-// Dernières mesures enregistrées
+/*
+ * ===============================
+ * HISTORIQUE
+ * ===============================
+ */
+
 router.get("/history", getHistory);
 
-// Historique filtré par période
-router.get("/history/period", getHistoryByPeriod);
+router.get(
+  "/history/period",
+  getHistoryByPeriod
+);
 
 export default router;
