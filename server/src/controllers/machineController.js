@@ -14,6 +14,16 @@ import {
 import { saveMeasurement } from "../services/measurementService.js";
 import { saveAlerts } from "../services/alertHistoryService.js";
 
+/*
+ * Convertit une valeur en nombre.
+ * Retourne 0 si la valeur est absente ou invalide.
+ */
+function toNumber(value) {
+  const number = Number(value);
+
+  return Number.isFinite(number) ? number : 0;
+}
+
 export function getMachineState(req, res) {
   res.json(machineState);
 }
@@ -27,6 +37,12 @@ export async function receiveMeasurements(req, res) {
     const allAlerts = [];
     const lines = ["L1", "L2", "L3"];
 
+    /*
+     * ===============================
+     * MESURES ÉLECTRIQUES
+     * ===============================
+     */
+
     for (const lineName of lines) {
       const lineData = data.lines?.[lineName];
 
@@ -35,13 +51,15 @@ export async function receiveMeasurements(req, res) {
       }
 
       const normalizedLine = {
-        voltage: Number(lineData.voltage) || 0,
-        current: Number(lineData.current) || 0,
-        power: Number(lineData.power) || 0,
-        energy: Number(lineData.energy) || 0,
-        frequency: Number(lineData.frequency) || 0,
-        powerFactor:
-          Number(lineData.powerFactor ?? lineData.pf) || 0,
+        voltage: toNumber(lineData.voltage),
+        current: toNumber(lineData.current),
+        power: toNumber(lineData.power),
+        energy: toNumber(lineData.energy),
+        frequency: toNumber(lineData.frequency),
+
+        powerFactor: toNumber(
+          lineData.powerFactor ?? lineData.pf
+        ),
       };
 
       const result = checkLineAlerts(
@@ -57,36 +75,130 @@ export async function receiveMeasurements(req, res) {
       allAlerts.push(...result.alerts);
     }
 
-    const temperatureValue =
-      Number(data.temperature?.value ?? data.temperature) || 0;
+    /*
+     * ===============================
+     * TEMPÉRATURE
+     * ===============================
+     */
 
-    const flowValue =
-      Number(data.flow?.value ?? data.flow) || 0;
+    const temperatureValue = toNumber(
+      data.temperature?.value ??
+        data.temperature
+    );
 
     const temperatureResult =
       checkTemperatureAlerts(temperatureValue);
-
-    const flowResult =
-      checkFlowAlerts(flowValue);
 
     machineState.temperature = {
       value: temperatureValue,
       status: temperatureResult.status,
     };
 
+    allAlerts.push(...temperatureResult.alerts);
+
+    /*
+     * ===============================
+     * DÉBIT
+     * ===============================
+     */
+
+    const flowValue = toNumber(
+      data.flow?.value ??
+        data.flow?.flowRate ??
+        data.flowRate ??
+        data.flow
+    );
+
+    const flowResult =
+      checkFlowAlerts(flowValue);
+
     machineState.flow = {
       value: flowValue,
       status: flowResult.status,
     };
 
-    allAlerts.push(
-      ...temperatureResult.alerts,
-      ...flowResult.alerts
+    allAlerts.push(...flowResult.alerts);
+
+    /*
+     * ===============================
+     * NIVEAU DU RÉSERVOIR
+     * ===============================
+     *
+     * Le contrôleur accepte aussi bien :
+     *
+     * data.tank
+     * data.reservoir
+     */
+
+    const tankData =
+      data.tank ??
+      data.reservoir ??
+      {};
+
+    const distanceCm = toNumber(
+      tankData.distanceCm ??
+        tankData.distance
     );
+
+    const levelCm = toNumber(
+      tankData.levelCm ??
+        tankData.liquidHeightCm ??
+        tankData.heightCm
+    );
+
+    const rawLevelPercent = toNumber(
+      tankData.levelPercent ??
+        tankData.percentage ??
+        tankData.percent
+    );
+
+    const volumeLiters = toNumber(
+      tankData.volumeLiters ??
+        tankData.volume ??
+        tankData.liters
+    );
+
+    const levelPercent = Math.min(
+      100,
+      Math.max(0, rawLevelPercent)
+    );
+
+    let tankStatus = "normal";
+
+    if (levelPercent <= 10) {
+      tankStatus = "critical";
+    } else if (levelPercent <= 20) {
+      tankStatus = "warning";
+    } else if (levelPercent >= 98) {
+      tankStatus = "critical";
+    } else if (levelPercent >= 90) {
+      tankStatus = "warning";
+    }
+
+    machineState.tank = {
+      distanceCm,
+      levelCm,
+      levelPercent,
+      volumeLiters,
+      status: tankStatus,
+    };
+
+    /*
+     * ===============================
+     * ÉTAT GLOBAL
+     * ===============================
+     */
 
     machineState.machineId = machineId;
     machineState.alerts = allAlerts;
-    machineState.timestamp = new Date().toISOString();
+    machineState.timestamp =
+      new Date().toISOString();
+
+    /*
+     * ===============================
+     * ENREGISTREMENT
+     * ===============================
+     */
 
     await saveAlerts(
       allAlerts,
@@ -99,6 +211,12 @@ export async function receiveMeasurements(req, res) {
         machineId
       );
 
+    /*
+     * ===============================
+     * SOCKET.IO
+     * ===============================
+     */
+
     const io = req.app.get("io");
 
     if (io) {
@@ -110,7 +228,8 @@ export async function receiveMeasurements(req, res) {
 
     res.status(201).json({
       success: true,
-      message: "Mesures reçues et enregistrées",
+      message:
+        "Mesures reçues et enregistrées",
       machineId,
       measurementId,
       data: machineState,
@@ -159,7 +278,8 @@ export async function getHistory(req, res) {
 
 export async function getHistoryByPeriod(req, res) {
   try {
-    const period = req.query.period || "24h";
+    const period =
+      req.query.period || "24h";
 
     const allowedPeriods = [
       "1h",
@@ -177,7 +297,9 @@ export async function getHistoryByPeriod(req, res) {
     }
 
     const history =
-      await getMeasurementHistoryByPeriod(period);
+      await getMeasurementHistoryByPeriod(
+        period
+      );
 
     res.json({
       success: true,
