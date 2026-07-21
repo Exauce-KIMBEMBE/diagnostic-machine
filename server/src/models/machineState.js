@@ -1,4 +1,6 @@
 export const machineState = {
+  machineId: 1,
+
   timestamp: null,
 
   lines: {
@@ -40,6 +42,17 @@ export const machineState = {
 
   flow: {
     value: 0,
+    status: "offline",
+  },
+
+  /*
+   * Réservoir
+   */
+  tank: {
+    distanceCm: 0,
+    levelCm: 0,
+    levelPercent: 0,
+    volumeLiters: 0,
     status: "offline",
   },
 
