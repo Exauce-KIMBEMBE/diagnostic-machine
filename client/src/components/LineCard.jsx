@@ -24,50 +24,149 @@ function formatValue(value, digits = 1) {
   return number.toFixed(digits);
 }
 
+function formatPower(value) {
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    return {
+      value: "--",
+      unit: "W",
+    };
+  }
+
+  if (Math.abs(number) >= 1000) {
+    return {
+      value: (number / 1000).toFixed(2),
+      unit: "kW",
+    };
+  }
+
+  return {
+    value: number.toFixed(1),
+    unit: "W",
+  };
+}
+
+function formatDate(value) {
+  if (!value) {
+    return "--";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "--";
+  }
+
+  return date.toLocaleString("fr-FR");
+}
+
 export default function LineCard({
   title,
   data,
 }) {
   const status = data?.status || "offline";
 
+  const voltage =
+    Number(data?.voltage) || 0;
+
+  const current =
+    Number(data?.current) || 0;
+
+  const activePower =
+    Number(data?.power) || 0;
+
+  const apparentPower =
+    voltage * current;
+
+  const reactivePower = Math.sqrt(
+    Math.max(
+      0,
+      apparentPower ** 2 -
+        activePower ** 2
+    )
+  );
+
+  const formattedPower =
+    formatPower(data?.power);
+
   const metrics = [
     {
       label: "Tension",
-      value: formatValue(data?.voltage, 1),
+      value: formatValue(
+        data?.voltage,
+        1
+      ),
       unit: "V",
       icon: Zap,
     },
     {
       label: "Courant",
-      value: formatValue(data?.current, 3),
+      value: formatValue(
+        data?.current,
+        3
+      ),
       unit: "A",
       icon: Activity,
     },
     {
-      label: "Puissance",
-      value: formatValue(data?.power, 1),
-      unit: "W",
+      label: "Puissance active",
+      value: formattedPower.value,
+      unit: formattedPower.unit,
+      icon: Gauge,
+    },
+    {
+      label: "Puissance apparente",
+      value: formatValue(
+        apparentPower,
+        1
+      ),
+      unit: "VA",
+      icon: Gauge,
+    },
+    {
+      label: "Puissance réactive",
+      value: formatValue(
+        reactivePower,
+        1
+      ),
+      unit: "VAR",
       icon: Gauge,
     },
     {
       label: "Énergie",
-      value: formatValue(data?.energy, 3),
+      value: formatValue(
+        data?.energy,
+        3
+      ),
       unit: "kWh",
       icon: BatteryCharging,
     },
     {
       label: "Fréquence",
-      value: formatValue(data?.frequency, 1),
+      value: formatValue(
+        data?.frequency,
+        1
+      ),
       unit: "Hz",
       icon: Radio,
     },
     {
-      label: "Facteur de puissance",
-      value: formatValue(data?.powerFactor, 2),
+      label: "cos φ",
+      value: formatValue(
+        data?.powerFactor,
+        2
+      ),
       unit: "",
       icon: Waves,
     },
   ];
+
+  const updatedAt =
+    data?.updatedAt ??
+    data?.updated_at ??
+    data?.timestamp ??
+    data?.created_at;
 
   return (
     <article
@@ -107,14 +206,24 @@ export default function LineCard({
                   {metric.label}
                 </span>
 
-                <strong className="metric-value">
-                  {metric.value} {metric.unit}
+                <strong
+                  className={`metric-value metric-${status}`}
+                >
+                  {metric.value}{" "}
+                  {metric.unit}
                 </strong>
               </div>
             </div>
           );
         })}
       </div>
+
+      <p className="line-update">
+        Dernière mesure :{" "}
+        <strong>
+          {formatDate(updatedAt)}
+        </strong>
+      </p>
     </article>
   );
 }
