@@ -9,30 +9,40 @@ import {
   checkLineAlerts,
   checkTemperatureAlerts,
   checkFlowAlerts,
+  checkTankAlerts,
 } from "../services/alertService.js";
 
 import { saveMeasurement } from "../services/measurementService.js";
 import { saveAlerts } from "../services/alertHistoryService.js";
 
-/*
- * Convertit une valeur en nombre.
- * Retourne 0 si la valeur est absente ou invalide.
- */
 function toNumber(value) {
   const number = Number(value);
 
   return Number.isFinite(number) ? number : 0;
 }
 
+function getMachineId(value) {
+  const machineId = Number(value);
+
+  if (!Number.isInteger(machineId) || machineId <= 0) {
+    return 1;
+  }
+
+  return machineId;
+}
+
 export function getMachineState(req, res) {
-  res.json(machineState);
+  res.json({
+    success: true,
+    data: machineState,
+  });
 }
 
 export async function receiveMeasurements(req, res) {
   try {
-    const data = req.body;
+    const data = req.body ?? {};
 
-    const machineId = Number(data.machineId) || 1;
+    const machineId = getMachineId(data.machineId);
 
     const allAlerts = [];
     const lines = ["L1", "L2", "L3"];
@@ -47,6 +57,11 @@ export async function receiveMeasurements(req, res) {
       const lineData = data.lines?.[lineName];
 
       if (!lineData) {
+        machineState.lines[lineName] = {
+          ...machineState.lines[lineName],
+          status: "offline",
+        };
+
         continue;
       }
 
@@ -56,7 +71,6 @@ export async function receiveMeasurements(req, res) {
         power: toNumber(lineData.power),
         energy: toNumber(lineData.energy),
         frequency: toNumber(lineData.frequency),
-
         powerFactor: toNumber(
           lineData.powerFactor ?? lineData.pf
         ),
@@ -121,13 +135,8 @@ export async function receiveMeasurements(req, res) {
 
     /*
      * ===============================
-     * NIVEAU DU RÉSERVOIR
+     * RÉSERVOIR
      * ===============================
-     *
-     * Le contrôleur accepte aussi bien :
-     *
-     * data.tank
-     * data.reservoir
      */
 
     const tankData =
@@ -152,36 +161,33 @@ export async function receiveMeasurements(req, res) {
         tankData.percent
     );
 
+    const levelPercent = Math.min(
+      100,
+      Math.max(0, rawLevelPercent)
+    );
+
     const volumeLiters = toNumber(
       tankData.volumeLiters ??
         tankData.volume ??
         tankData.liters
     );
 
-    const levelPercent = Math.min(
-      100,
-      Math.max(0, rawLevelPercent)
-    );
-
-    let tankStatus = "normal";
-
-    if (levelPercent <= 10) {
-      tankStatus = "critical";
-    } else if (levelPercent <= 20) {
-      tankStatus = "warning";
-    } else if (levelPercent >= 98) {
-      tankStatus = "critical";
-    } else if (levelPercent >= 90) {
-      tankStatus = "warning";
-    }
+    const tankResult = checkTankAlerts({
+      distanceCm,
+      levelCm,
+      levelPercent,
+      volumeLiters,
+    });
 
     machineState.tank = {
       distanceCm,
       levelCm,
       levelPercent,
       volumeLiters,
-      status: tankStatus,
+      status: tankResult.status,
     };
+
+    allAlerts.push(...tankResult.alerts);
 
     /*
      * ===============================
@@ -226,10 +232,9 @@ export async function receiveMeasurements(req, res) {
       });
     }
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
-      message:
-        "Mesures reçues et enregistrées",
+      message: "Mesures reçues et enregistrées",
       machineId,
       measurementId,
       data: machineState,
@@ -240,7 +245,7 @@ export async function receiveMeasurements(req, res) {
       error
     );
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message:
         "Erreur lors du traitement ou de l’enregistrement des mesures",
@@ -253,11 +258,19 @@ export async function getHistory(req, res) {
   try {
     const limit = req.query.limit || 100;
 
-    const history =
-      await getMeasurementHistory(limit);
+    const machineId = req.query.machineId
+      ? getMachineId(req.query.machineId)
+      : null;
 
-    res.json({
+    const history =
+      await getMeasurementHistory(
+        limit,
+        machineId
+      );
+
+    return res.json({
       success: true,
+      machineId,
       count: history.length,
       data: history,
     });
@@ -267,7 +280,7 @@ export async function getHistory(req, res) {
       error
     );
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message:
         "Impossible de récupérer l’historique",
@@ -296,13 +309,19 @@ export async function getHistoryByPeriod(req, res) {
       });
     }
 
+    const machineId = req.query.machineId
+      ? getMachineId(req.query.machineId)
+      : null;
+
     const history =
       await getMeasurementHistoryByPeriod(
-        period
+        period,
+        machineId
       );
 
-    res.json({
+    return res.json({
       success: true,
+      machineId,
       period,
       count: history.length,
       data: history,
@@ -313,7 +332,7 @@ export async function getHistoryByPeriod(req, res) {
       error
     );
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message:
         "Impossible de récupérer l’historique demandé",
