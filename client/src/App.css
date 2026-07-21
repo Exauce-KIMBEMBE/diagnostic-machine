@@ -546,3 +546,99 @@
     border-radius: 14px;
   }
 }
+
+.sensor-card{
+    display:flex;
+    flex-direction:column;
+    justify-content:space-between;
+    gap:18px;
+    padding:22px;
+    border-radius:16px;
+    background:var(--surface);
+    box-shadow:var(--shadow);
+    transition:.25s;
+}
+
+.sensor-card:hover{
+    transform:translateY(-3px);
+}
+
+.sensor-card-header{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+}
+
+.sensor-card-icon{
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    width:54px;
+    height:54px;
+    border-radius:14px;
+    background:rgba(255,255,255,.05);
+}
+
+.sensor-card-title{
+    color:var(--text-secondary);
+    font-size:.9rem;
+}
+
+.sensor-card-value{
+    display:flex;
+    align-items:flex-end;
+    gap:6px;
+    margin-top:8px;
+    font-size:2rem;
+    font-weight:700;
+}
+
+.sensor-card-value small{
+    font-size:1rem;
+    color:var(--text-secondary);
+}
+
+.sensor-progress{
+    height:8px;
+    overflow:hidden;
+    border-radius:20px;
+    background:rgba(255,255,255,.08);
+}
+
+.sensor-progress-fill{
+    height:100%;
+    transition:.4s;
+}
+
+.sensor-progress-normal{
+    background:#22c55e;
+}
+
+.sensor-progress-warning{
+    background:#f59e0b;
+}
+
+.sensor-progress-critical{
+    background:#ef4444;
+}
+
+.sensor-progress-offline{
+    background:#64748b;
+}
+
+.sensor-card-normal{
+    border-left:5px solid #22c55e;
+}
+
+.sensor-card-warning{
+    border-left:5px solid #f59e0b;
+}
+
+.sensor-card-critical{
+    border-left:5px solid #ef4444;
+}
+
+.sensor-card-offline{
+    border-left:5px solid #64748b;
+}
+
