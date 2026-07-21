@@ -1,6 +1,7 @@
 import {
   Activity,
   Droplets,
+  Gauge,
   RefreshCw,
   Server,
   Settings,
@@ -30,12 +31,22 @@ export default function Dashboard({
     setAlerts,
   } = useMachineData(1);
 
-  function handleAlertAcknowledged(alertId) {
+  const lines = machine?.lines ?? {};
+  const temperature =
+    machine?.temperature ?? {};
+  const flow = machine?.flow ?? {};
+  const tank = machine?.tank ?? {};
+
+  function handleAlertAcknowledged(
+    alertId
+  ) {
     setAlerts((previousAlerts) =>
       previousAlerts.filter(
         (alert) =>
-          Number(alert.id ?? alert.databaseId) !==
-          Number(alertId)
+          Number(
+            alert.id ??
+              alert.databaseId
+          ) !== Number(alertId)
       )
     );
   }
@@ -51,8 +62,10 @@ export default function Dashboard({
           <h1>Diagnostic machine</h1>
 
           <p>
-            Suivi des trois lignes électriques,
-            de la température et du débit.
+            Suivi des trois lignes
+            électriques, de la
+            température, du débit et du
+            niveau du réservoir.
           </p>
         </div>
 
@@ -77,9 +90,20 @@ export default function Dashboard({
             className="refresh-button"
             type="button"
             onClick={reload}
+            disabled={loading}
           >
-            <RefreshCw size={18} />
-            Actualiser
+            <RefreshCw
+              size={18}
+              className={
+                loading
+                  ? "icon-spinning"
+                  : ""
+              }
+            />
+
+            {loading
+              ? "Actualisation..."
+              : "Actualiser"}
           </button>
 
           <button
@@ -96,7 +120,9 @@ export default function Dashboard({
       {loading ? (
         <section className="dashboard-message">
           <Activity size={28} />
-          <p>Chargement des données...</p>
+          <p>
+            Chargement des données...
+          </p>
         </section>
       ) : null}
 
@@ -110,37 +136,75 @@ export default function Dashboard({
       <section className="lines-grid">
         <LineCard
           title="Ligne 1"
-          data={machine.lines.L1}
+          data={lines.L1}
         />
 
         <LineCard
           title="Ligne 2"
-          data={machine.lines.L2}
+          data={lines.L2}
         />
 
         <LineCard
           title="Ligne 3"
-          data={machine.lines.L3}
+          data={lines.L3}
         />
       </section>
 
       <section className="sensors-grid">
         <SensorCard
           title="Température"
-          value={machine.temperature.value}
+          value={temperature.value ?? 0}
           unit="°C"
-          status={machine.temperature.status}
+          status={
+            temperature.status ??
+            "offline"
+          }
           icon={Thermometer}
           digits={1}
         />
 
         <SensorCard
           title="Débit"
-          value={machine.flow.value}
+          value={flow.value ?? 0}
           unit="L/min"
-          status={machine.flow.status}
+          status={
+            flow.status ?? "offline"
+          }
           icon={Droplets}
           digits={2}
+        />
+
+        <SensorCard
+          title="Niveau du réservoir"
+          value={tank.levelPercent ?? 0}
+          unit="%"
+          status={
+            tank.status ?? "offline"
+          }
+          icon={Gauge}
+          digits={1}
+        />
+
+        <SensorCard
+          title="Volume disponible"
+          value={tank.volumeLiters ?? 0}
+          unit="L"
+          status={
+            tank.status ?? "offline"
+          }
+          icon={Droplets}
+          digits={1}
+        />
+
+        <SensorCard
+          title="Distance capteur"
+          value={tank.distanceCm ?? 0}
+          unit="cm"
+          status={
+            tank.status ?? "offline"
+          }
+          icon={Gauge}
+          digits={1}
         />
 
         <article className="last-update-card">
@@ -149,7 +213,7 @@ export default function Dashboard({
           </span>
 
           <strong>
-            {machine.timestamp
+            {machine?.timestamp
               ? new Date(
                   machine.timestamp
                 ).toLocaleString("fr-FR")
