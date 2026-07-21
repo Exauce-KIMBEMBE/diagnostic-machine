@@ -1,13 +1,27 @@
 import { pool } from "../config/database.js";
 
+function safeNumber(value) {
+  const number = Number(value);
+
+  return Number.isFinite(number)
+    ? number
+    : 0;
+}
+
 export async function saveMeasurement(
   machineState,
   machineId = 1
 ) {
-  const { lines, temperature, flow } = machineState;
+  const {
+    lines,
+    temperature,
+    flow,
+    tank = {},
+  } = machineState;
 
   const sql = `
     INSERT INTO machine_measurements (
+
       machine_id,
 
       l1_voltage,
@@ -32,45 +46,73 @@ export async function saveMeasurement(
       l3_power_factor,
 
       temperature,
-      flow_rate
+
+      flow_rate,
+
+      tank_distance_cm,
+      tank_level_cm,
+      tank_level_percent,
+      tank_volume_liters
+
     )
     VALUES (
-      ?, ?, ?, ?, ?, ?, ?,
+
+      ?,
+
       ?, ?, ?, ?, ?, ?,
+
       ?, ?, ?, ?, ?, ?,
-      ?, ?
+
+      ?, ?, ?, ?, ?, ?,
+
+      ?,
+
+      ?,
+
+      ?, ?, ?, ?
+
     )
   `;
 
   const values = [
+
     machineId,
 
-    lines.L1.voltage,
-    lines.L1.current,
-    lines.L1.power,
-    lines.L1.energy,
-    lines.L1.frequency,
-    lines.L1.powerFactor,
+    safeNumber(lines.L1.voltage),
+    safeNumber(lines.L1.current),
+    safeNumber(lines.L1.power),
+    safeNumber(lines.L1.energy),
+    safeNumber(lines.L1.frequency),
+    safeNumber(lines.L1.powerFactor),
 
-    lines.L2.voltage,
-    lines.L2.current,
-    lines.L2.power,
-    lines.L2.energy,
-    lines.L2.frequency,
-    lines.L2.powerFactor,
+    safeNumber(lines.L2.voltage),
+    safeNumber(lines.L2.current),
+    safeNumber(lines.L2.power),
+    safeNumber(lines.L2.energy),
+    safeNumber(lines.L2.frequency),
+    safeNumber(lines.L2.powerFactor),
 
-    lines.L3.voltage,
-    lines.L3.current,
-    lines.L3.power,
-    lines.L3.energy,
-    lines.L3.frequency,
-    lines.L3.powerFactor,
+    safeNumber(lines.L3.voltage),
+    safeNumber(lines.L3.current),
+    safeNumber(lines.L3.power),
+    safeNumber(lines.L3.energy),
+    safeNumber(lines.L3.frequency),
+    safeNumber(lines.L3.powerFactor),
 
-    temperature.value,
-    flow.value,
+    safeNumber(temperature.value),
+
+    safeNumber(flow.value),
+
+    safeNumber(tank.distanceCm),
+    safeNumber(tank.levelCm),
+    safeNumber(tank.levelPercent),
+    safeNumber(tank.volumeLiters),
   ];
 
-  const [result] = await pool.query(sql, values);
+  const [result] = await pool.query(
+    sql,
+    values
+  );
 
   return result.insertId;
 }
