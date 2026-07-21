@@ -7,11 +7,34 @@ function normalizeLimit(limit) {
   );
 }
 
+function normalizeMachineId(machineId) {
+  if (
+    machineId === null ||
+    machineId === undefined ||
+    machineId === ""
+  ) {
+    return null;
+  }
+
+  const parsedMachineId = Number(machineId);
+
+  if (
+    !Number.isInteger(parsedMachineId) ||
+    parsedMachineId <= 0
+  ) {
+    return null;
+  }
+
+  return parsedMachineId;
+}
+
 export async function getMeasurementHistory(
   limit = 100,
   machineId = null
 ) {
   const safeLimit = normalizeLimit(limit);
+  const safeMachineId =
+    normalizeMachineId(machineId);
 
   let sql = `
     SELECT
@@ -41,18 +64,24 @@ export async function getMeasurementHistory(
 
       temperature,
       flow_rate,
+
+      tank_distance_cm,
+      tank_level_cm,
+      tank_level_percent,
+      tank_volume_liters,
+
       created_at
     FROM machine_measurements
   `;
 
   const values = [];
 
-  if (machineId) {
+  if (safeMachineId !== null) {
     sql += `
       WHERE machine_id = ?
     `;
 
-    values.push(Number(machineId));
+    values.push(safeMachineId);
   }
 
   sql += `
@@ -80,6 +109,9 @@ export async function getMeasurementHistoryByPeriod(
 
   const hours = periodMap[period] || 24;
 
+  const safeMachineId =
+    normalizeMachineId(machineId);
+
   let sql = `
     SELECT
       id,
@@ -108,19 +140,28 @@ export async function getMeasurementHistoryByPeriod(
 
       temperature,
       flow_rate,
+
+      tank_distance_cm,
+      tank_level_cm,
+      tank_level_percent,
+      tank_volume_liters,
+
       created_at
     FROM machine_measurements
-    WHERE created_at >= DATE_SUB(NOW(), INTERVAL ? HOUR)
+    WHERE created_at >= DATE_SUB(
+      NOW(),
+      INTERVAL ? HOUR
+    )
   `;
 
   const values = [hours];
 
-  if (machineId) {
+  if (safeMachineId !== null) {
     sql += `
       AND machine_id = ?
     `;
 
-    values.push(Number(machineId));
+    values.push(safeMachineId);
   }
 
   sql += `
