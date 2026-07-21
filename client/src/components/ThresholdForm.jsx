@@ -1,87 +1,594 @@
-import { useEffect, useState } from "react";
-import { Save } from "lucide-react";
+import { useMemo, useState } from "react";
+import {
+  Edit3,
+  Plus,
+  RotateCcw,
+  Save,
+  Trash2,
+} from "lucide-react";
 
 import {
-  saveThreshold,
   deleteThreshold,
+  saveThreshold,
 } from "../services/api.js";
 
-const emptyForm = {
-  source: "L1",
-  parameterName: "voltage",
-  minimumValue: "",
-  maximumValue: "",
-  warningValue: "",
-  criticalValue: "",
-  unit: "V",
+const SOURCE_OPTIONS = [
+  {
+    value: "L1",
+    label: "Ligne 1",
+  },
+  {
+    value: "L2",
+    label: "Ligne 2",
+  },
+  {
+    value: "L3",
+    label: "Ligne 3",
+  },
+  {
+    value: "temperature",
+    label: "Température",
+  },
+  {
+    value: "flow",
+    label: "Débit",
+  },
+  {
+    value: "tank",
+    label: "Réservoir",
+  },
+];
+
+const PARAMETER_OPTIONS = {
+  L1: [
+    {
+      value: "voltage",
+      label: "Tension",
+      unit: "V",
+    },
+    {
+      value: "current",
+      label: "Courant",
+      unit: "A",
+    },
+    {
+      value: "power",
+      label: "Puissance",
+      unit: "W",
+    },
+    {
+      value: "energy",
+      label: "Énergie",
+      unit: "kWh",
+    },
+    {
+      value: "frequency",
+      label: "Fréquence",
+      unit: "Hz",
+    },
+    {
+      value: "powerFactor",
+      label: "Facteur de puissance",
+      unit: "",
+    },
+  ],
+
+  L2: [
+    {
+      value: "voltage",
+      label: "Tension",
+      unit: "V",
+    },
+    {
+      value: "current",
+      label: "Courant",
+      unit: "A",
+    },
+    {
+      value: "power",
+      label: "Puissance",
+      unit: "W",
+    },
+    {
+      value: "energy",
+      label: "Énergie",
+      unit: "kWh",
+    },
+    {
+      value: "frequency",
+      label: "Fréquence",
+      unit: "Hz",
+    },
+    {
+      value: "powerFactor",
+      label: "Facteur de puissance",
+      unit: "",
+    },
+  ],
+
+  L3: [
+    {
+      value: "voltage",
+      label: "Tension",
+      unit: "V",
+    },
+    {
+      value: "current",
+      label: "Courant",
+      unit: "A",
+    },
+    {
+      value: "power",
+      label: "Puissance",
+      unit: "W",
+    },
+    {
+      value: "energy",
+      label: "Énergie",
+      unit: "kWh",
+    },
+    {
+      value: "frequency",
+      label: "Fréquence",
+      unit: "Hz",
+    },
+    {
+      value: "powerFactor",
+      label: "Facteur de puissance",
+      unit: "",
+    },
+  ],
+
+  temperature: [
+    {
+      value: "temperature",
+      label: "Température",
+      unit: "°C",
+    },
+  ],
+
+  flow: [
+    {
+      value: "flow",
+      label: "Débit",
+      unit: "L/min",
+    },
+  ],
+
+  tank: [
+    {
+      value: "levelPercent",
+      label: "Niveau",
+      unit: "%",
+    },
+    {
+      value: "levelCm",
+      label: "Hauteur de liquide",
+      unit: "cm",
+    },
+    {
+      value: "distanceCm",
+      label: "Distance du capteur",
+      unit: "cm",
+    },
+    {
+      value: "volumeLiters",
+      label: "Volume disponible",
+      unit: "L",
+    },
+  ],
 };
 
+const PARAMETER_LABELS = Object.values(
+  PARAMETER_OPTIONS
+)
+  .flat()
+  .reduce((labels, parameter) => {
+    labels[parameter.value] = parameter.label;
+    return labels;
+  }, {});
+
+function createEmptyForm(machineId = 1) {
+  return {
+    id: null,
+    machineId,
+    source: "L1",
+    parameterName: "voltage",
+    minimumValue: "",
+    maximumValue: "",
+    warningValue: "",
+    criticalValue: "",
+    unit: "V",
+  };
+}
+
+function getValue(object, camelCaseKey, snakeCaseKey) {
+  return (
+    object?.[camelCaseKey] ??
+    object?.[snakeCaseKey] ??
+    ""
+  );
+}
+
+function normalizeThreshold(
+  threshold,
+  machineId = 1
+) {
+  return {
+    ...threshold,
+
+    id:
+      threshold?.id ??
+      threshold?.thresholdId ??
+      null,
+
+    machineId:
+      Number(
+        getValue(
+          threshold,
+          "machineId",
+          "machine_id"
+        )
+      ) ||
+      Number(machineId) ||
+      1,
+
+    source: threshold?.source ?? "L1",
+
+    parameterName:
+      getValue(
+        threshold,
+        "parameterName",
+        "parameter_name"
+      ) || "voltage",
+
+    minimumValue: getValue(
+      threshold,
+      "minimumValue",
+      "minimum_value"
+    ),
+
+    maximumValue: getValue(
+      threshold,
+      "maximumValue",
+      "maximum_value"
+    ),
+
+    warningValue: getValue(
+      threshold,
+      "warningValue",
+      "warning_value"
+    ),
+
+    criticalValue: getValue(
+      threshold,
+      "criticalValue",
+      "critical_value"
+    ),
+
+    unit: threshold?.unit ?? "",
+  };
+}
+
+function extractSavedThreshold(response) {
+  return (
+    response?.data?.data ??
+    response?.data ??
+    response
+  );
+}
+
+function toNullableNumber(value) {
+  if (
+    value === "" ||
+    value === null ||
+    value === undefined
+  ) {
+    return null;
+  }
+
+  const numericValue = Number(value);
+
+  return Number.isFinite(numericValue)
+    ? numericValue
+    : null;
+}
+
+function formatThresholdValue(value, unit = "") {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ""
+  ) {
+    return "--";
+  }
+
+  return `${value}${unit ? ` ${unit}` : ""}`;
+}
+
 export default function ThresholdForm({
+  machineId = 1,
   thresholds = [],
   onSaved,
   onDeleted,
 }) {
-  const [form, setForm] = useState(emptyForm);
-  const [message, setMessage] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState(() =>
+    createEmptyForm(machineId)
+  );
 
-  useEffect(() => {
+  const [editingId, setEditingId] =
+    useState(null);
+
+  const [saving, setSaving] =
+    useState(false);
+
+  const [deletingId, setDeletingId] =
+    useState(null);
+
+  const [message, setMessage] =
+    useState("");
+
+  const [messageType, setMessageType] =
+    useState("");
+
+  const availableParameters =
+    PARAMETER_OPTIONS[form.source] ??
+    PARAMETER_OPTIONS.L1;
+
+  const normalizedThresholds = useMemo(
+    () =>
+      thresholds
+        .map((threshold) =>
+          normalizeThreshold(
+            threshold,
+            machineId
+          )
+        )
+        .sort((first, second) => {
+          const sourceComparison =
+            String(first.source).localeCompare(
+              String(second.source)
+            );
+
+          if (sourceComparison !== 0) {
+            return sourceComparison;
+          }
+
+          return String(
+            first.parameterName
+          ).localeCompare(
+            String(second.parameterName)
+          );
+        }),
+    [thresholds, machineId]
+  );
+
+  function showMessage(type, text) {
+    setMessageType(type);
+    setMessage(text);
+  }
+
+  function clearMessage() {
     setMessage("");
-  }, [thresholds]);
+    setMessageType("");
+  }
 
   function handleChange(event) {
     const { name, value } = event.target;
 
-    setForm((previous) => ({
-      ...previous,
+    clearMessage();
+
+    if (name === "source") {
+      const sourceParameters =
+        PARAMETER_OPTIONS[value] ??
+        PARAMETER_OPTIONS.L1;
+
+      const firstParameter =
+        sourceParameters[0];
+
+      setForm((previousForm) => ({
+        ...previousForm,
+        source: value,
+        parameterName:
+          firstParameter.value,
+        unit: firstParameter.unit,
+      }));
+
+      return;
+    }
+
+    if (name === "parameterName") {
+      const selectedParameter =
+        availableParameters.find(
+          (parameter) =>
+            parameter.value === value
+        );
+
+      setForm((previousForm) => ({
+        ...previousForm,
+        parameterName: value,
+        unit:
+          selectedParameter?.unit ??
+          previousForm.unit,
+      }));
+
+      return;
+    }
+
+    setForm((previousForm) => ({
+      ...previousForm,
       [name]: value,
     }));
+  }
+
+  function resetForm() {
+    setForm(createEmptyForm(machineId));
+    setEditingId(null);
+    clearMessage();
+  }
+
+  function handleEdit(threshold) {
+    const normalizedThreshold =
+      normalizeThreshold(
+        threshold,
+        machineId
+      );
+
+    setForm({
+      ...createEmptyForm(machineId),
+      ...normalizedThreshold,
+
+      minimumValue:
+        normalizedThreshold.minimumValue ??
+        "",
+
+      maximumValue:
+        normalizedThreshold.maximumValue ??
+        "",
+
+      warningValue:
+        normalizedThreshold.warningValue ??
+        "",
+
+      criticalValue:
+        normalizedThreshold.criticalValue ??
+        "",
+    });
+
+    setEditingId(normalizedThreshold.id);
+    clearMessage();
+
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
+  }
+
+  function validateForm() {
+    const minimumValue =
+      toNullableNumber(form.minimumValue);
+
+    const maximumValue =
+      toNullableNumber(form.maximumValue);
+
+    const warningValue =
+      toNullableNumber(form.warningValue);
+
+    const criticalValue =
+      toNullableNumber(form.criticalValue);
+
+    if (!form.source) {
+      return "Sélectionne une source.";
+    }
+
+    if (!form.parameterName) {
+      return "Sélectionne un paramètre.";
+    }
+
+    if (
+      minimumValue === null &&
+      maximumValue === null &&
+      warningValue === null &&
+      criticalValue === null
+    ) {
+      return "Renseigne au moins une valeur de seuil.";
+    }
+
+    if (
+      minimumValue !== null &&
+      maximumValue !== null &&
+      minimumValue > maximumValue
+    ) {
+      return "La valeur minimale ne peut pas être supérieure à la valeur maximale.";
+    }
+
+    return "";
   }
 
   async function handleSubmit(event) {
     event.preventDefault();
 
+    const validationMessage =
+      validateForm();
+
+    if (validationMessage) {
+      showMessage(
+        "error",
+        validationMessage
+      );
+
+      return;
+    }
+
     try {
       setSaving(true);
-      setMessage("");
+      clearMessage();
 
       const payload = {
+        id: editingId,
+        machineId:
+          Number(machineId) || 1,
+
         source: form.source,
-        parameterName: form.parameterName,
+
+        parameterName:
+          form.parameterName,
+
         minimumValue:
-          form.minimumValue === ""
-            ? null
-            : Number(form.minimumValue),
+          toNullableNumber(
+            form.minimumValue
+          ),
+
         maximumValue:
-          form.maximumValue === ""
-            ? null
-            : Number(form.maximumValue),
+          toNullableNumber(
+            form.maximumValue
+          ),
+
         warningValue:
-          form.warningValue === ""
-            ? null
-            : Number(form.warningValue),
+          toNullableNumber(
+            form.warningValue
+          ),
+
         criticalValue:
-          form.criticalValue === ""
-            ? null
-            : Number(form.criticalValue),
-        unit: form.unit || null,
+          toNullableNumber(
+            form.criticalValue
+          ),
+
+        unit: form.unit.trim() || null,
       };
 
-      const response = await saveThreshold(payload);
+      const response =
+        await saveThreshold(payload);
 
-      setMessage("Seuil enregistré avec succès.");
+      const savedThreshold =
+        normalizeThreshold(
+          extractSavedThreshold(response),
+          machineId
+        );
+
+      showMessage(
+        "success",
+        editingId
+          ? "Seuil modifié avec succès."
+          : "Seuil enregistré avec succès."
+      );
 
       if (onSaved) {
-        onSaved(response.data);
+        onSaved(savedThreshold);
       }
+
+      setForm(createEmptyForm(machineId));
+      setEditingId(null);
     } catch (error) {
       console.error(
         "Erreur enregistrement du seuil :",
         error
       );
 
-      setMessage(
+      showMessage(
+        "error",
         error.response?.data?.message ||
+          error.message ||
           "Impossible d’enregistrer le seuil."
       );
     } finally {
@@ -89,18 +596,79 @@ export default function ThresholdForm({
     }
   }
 
-  async function handleDelete(id) {
+  async function handleDelete(threshold) {
+    const normalizedThreshold =
+      normalizeThreshold(
+        threshold,
+        machineId
+      );
+
+    if (!normalizedThreshold.id) {
+      showMessage(
+        "error",
+        "Identifiant du seuil introuvable."
+      );
+
+      return;
+    }
+
+    const parameterLabel =
+      PARAMETER_LABELS[
+        normalizedThreshold.parameterName
+      ] ??
+      normalizedThreshold.parameterName;
+
+    const confirmed = window.confirm(
+      `Supprimer le seuil ${normalizedThreshold.source} — ${parameterLabel} ?`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
     try {
-      await deleteThreshold(id);
+      setDeletingId(
+        normalizedThreshold.id
+      );
+
+      clearMessage();
+
+      await deleteThreshold(
+        normalizedThreshold.id,
+        machineId
+      );
+
+      if (
+        Number(editingId) ===
+        Number(normalizedThreshold.id)
+      ) {
+        resetForm();
+      }
 
       if (onDeleted) {
-        onDeleted(id);
+        onDeleted(
+          normalizedThreshold.id
+        );
       }
+
+      showMessage(
+        "success",
+        "Seuil supprimé avec succès."
+      );
     } catch (error) {
       console.error(
         "Erreur suppression du seuil :",
         error
       );
+
+      showMessage(
+        "error",
+        error.response?.data?.message ||
+          error.message ||
+          "Impossible de supprimer le seuil."
+      );
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -112,8 +680,30 @@ export default function ThresholdForm({
             Configuration
           </span>
 
-          <h2>Seuils critiques</h2>
+          <h2>
+            {editingId
+              ? "Modifier un seuil"
+              : "Ajouter un seuil"}
+          </h2>
+
+          <p className="threshold-description">
+            Définis les limites utilisées
+            pour détecter les anomalies de
+            la machine.
+          </p>
         </div>
+
+        {editingId ? (
+          <button
+            className="reset-threshold-button"
+            type="button"
+            onClick={resetForm}
+            disabled={saving}
+          >
+            <Plus size={18} />
+            Nouveau seuil
+          </button>
+        ) : null}
       </div>
 
       <form
@@ -127,14 +717,18 @@ export default function ThresholdForm({
             name="source"
             value={form.source}
             onChange={handleChange}
+            disabled={saving}
           >
-            <option value="L1">Ligne 1</option>
-            <option value="L2">Ligne 2</option>
-            <option value="L3">Ligne 3</option>
-            <option value="temperature">
-              Température
-            </option>
-            <option value="flow">Débit</option>
+            {SOURCE_OPTIONS.map(
+              (source) => (
+                <option
+                  key={source.value}
+                  value={source.value}
+                >
+                  {source.label}
+                </option>
+              )
+            )}
           </select>
         </label>
 
@@ -145,20 +739,18 @@ export default function ThresholdForm({
             name="parameterName"
             value={form.parameterName}
             onChange={handleChange}
+            disabled={saving}
           >
-            <option value="voltage">Tension</option>
-            <option value="current">Courant</option>
-            <option value="power">Puissance</option>
-            <option value="frequency">
-              Fréquence
-            </option>
-            <option value="powerFactor">
-              Facteur de puissance
-            </option>
-            <option value="temperature">
-              Température
-            </option>
-            <option value="flow">Débit</option>
+            {availableParameters.map(
+              (parameter) => (
+                <option
+                  key={parameter.value}
+                  value={parameter.value}
+                >
+                  {parameter.label}
+                </option>
+              )
+            )}
           </select>
         </label>
 
@@ -168,9 +760,11 @@ export default function ThresholdForm({
           <input
             name="minimumValue"
             type="number"
-            step="0.01"
+            step="any"
             value={form.minimumValue}
             onChange={handleChange}
+            placeholder="Ex. 210"
+            disabled={saving}
           />
         </label>
 
@@ -180,9 +774,11 @@ export default function ThresholdForm({
           <input
             name="maximumValue"
             type="number"
-            step="0.01"
+            step="any"
             value={form.maximumValue}
             onChange={handleChange}
+            placeholder="Ex. 250"
+            disabled={saving}
           />
         </label>
 
@@ -192,9 +788,11 @@ export default function ThresholdForm({
           <input
             name="warningValue"
             type="number"
-            step="0.01"
+            step="any"
             value={form.warningValue}
             onChange={handleChange}
+            placeholder="Valeur d’alerte"
+            disabled={saving}
           />
         </label>
 
@@ -204,9 +802,11 @@ export default function ThresholdForm({
           <input
             name="criticalValue"
             type="number"
-            step="0.01"
+            step="any"
             value={form.criticalValue}
             onChange={handleChange}
+            placeholder="Valeur critique"
+            disabled={saving}
           />
         </label>
 
@@ -218,65 +818,210 @@ export default function ThresholdForm({
             type="text"
             value={form.unit}
             onChange={handleChange}
+            placeholder="V, A, °C..."
+            disabled={saving}
           />
         </label>
 
-        <button
-          className="save-threshold-button"
-          type="submit"
-          disabled={saving}
-        >
-          <Save size={18} />
+        <div className="threshold-form-actions">
+          <button
+            className="save-threshold-button"
+            type="submit"
+            disabled={saving}
+          >
+            <Save size={18} />
 
-          {saving
-            ? "Enregistrement..."
-            : "Enregistrer"}
-        </button>
+            {saving
+              ? "Enregistrement..."
+              : editingId
+                ? "Enregistrer les modifications"
+                : "Enregistrer le seuil"}
+          </button>
+
+          <button
+            className="reset-threshold-button"
+            type="button"
+            onClick={resetForm}
+            disabled={saving}
+          >
+            <RotateCcw size={18} />
+            Réinitialiser
+          </button>
+        </div>
       </form>
 
       {message ? (
-        <p className="threshold-message">
+        <p
+          className={`threshold-message threshold-message-${messageType}`}
+        >
           {message}
         </p>
       ) : null}
 
-      <div className="threshold-list">
-        {thresholds.map((threshold) => (
-          <article
-            className="threshold-item"
-            key={threshold.id}
-          >
-            <div>
-              <strong>
-                {threshold.source} —{" "}
-                {threshold.parameter_name}
-              </strong>
+      <div className="threshold-list-header">
+        <div>
+          <span className="panel-eyebrow">
+            Seuils enregistrés
+          </span>
 
-              <span>
-                Min :{" "}
-                {threshold.minimum_value ?? "--"} ·
-                Max :{" "}
-                {threshold.maximum_value ?? "--"} ·
-                Avertissement :{" "}
-                {threshold.warning_value ?? "--"} ·
-                Critique :{" "}
-                {threshold.critical_value ?? "--"}{" "}
-                {threshold.unit ?? ""}
-              </span>
-            </div>
+          <h3>
+            Configuration actuelle
+          </h3>
+        </div>
 
-            <button
-              className="delete-threshold-button"
-              type="button"
-              onClick={() =>
-                handleDelete(threshold.id)
-              }
-            >
-              Supprimer
-            </button>
-          </article>
-        ))}
+        <span className="threshold-count">
+          {normalizedThresholds.length}
+        </span>
       </div>
+
+      {normalizedThresholds.length === 0 ? (
+        <div className="threshold-empty-state">
+          <p>
+            Aucun seuil enregistré pour
+            cette machine.
+          </p>
+
+          <span>
+            Utilise le formulaire ci-dessus
+            pour ajouter ton premier seuil.
+          </span>
+        </div>
+      ) : (
+        <div className="threshold-list">
+          {normalizedThresholds.map(
+            (threshold) => {
+              const parameterLabel =
+                PARAMETER_LABELS[
+                  threshold.parameterName
+                ] ??
+                threshold.parameterName;
+
+              const sourceLabel =
+                SOURCE_OPTIONS.find(
+                  (source) =>
+                    source.value ===
+                    threshold.source
+                )?.label ??
+                threshold.source;
+
+              const isDeleting =
+                Number(deletingId) ===
+                Number(threshold.id);
+
+              const isEditing =
+                Number(editingId) ===
+                Number(threshold.id);
+
+              return (
+                <article
+                  className={`threshold-item ${
+                    isEditing
+                      ? "threshold-item-editing"
+                      : ""
+                  }`}
+                  key={
+                    threshold.id ??
+                    `${threshold.source}-${threshold.parameterName}`
+                  }
+                >
+                  <div className="threshold-item-main">
+                    <div className="threshold-item-title">
+                      <strong>
+                        {sourceLabel}
+                      </strong>
+
+                      <span>
+                        {parameterLabel}
+                      </span>
+                    </div>
+
+                    <div className="threshold-values">
+                      <span>
+                        <small>Minimum</small>
+
+                        <strong>
+                          {formatThresholdValue(
+                            threshold.minimumValue,
+                            threshold.unit
+                          )}
+                        </strong>
+                      </span>
+
+                      <span>
+                        <small>Maximum</small>
+
+                        <strong>
+                          {formatThresholdValue(
+                            threshold.maximumValue,
+                            threshold.unit
+                          )}
+                        </strong>
+                      </span>
+
+                      <span>
+                        <small>
+                          Avertissement
+                        </small>
+
+                        <strong>
+                          {formatThresholdValue(
+                            threshold.warningValue,
+                            threshold.unit
+                          )}
+                        </strong>
+                      </span>
+
+                      <span>
+                        <small>Critique</small>
+
+                        <strong>
+                          {formatThresholdValue(
+                            threshold.criticalValue,
+                            threshold.unit
+                          )}
+                        </strong>
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="threshold-item-actions">
+                    <button
+                      className="edit-threshold-button"
+                      type="button"
+                      onClick={() =>
+                        handleEdit(threshold)
+                      }
+                      disabled={
+                        saving || isDeleting
+                      }
+                    >
+                      <Edit3 size={17} />
+                      Modifier
+                    </button>
+
+                    <button
+                      className="delete-threshold-button"
+                      type="button"
+                      onClick={() =>
+                        handleDelete(threshold)
+                      }
+                      disabled={
+                        saving || isDeleting
+                      }
+                    >
+                      <Trash2 size={17} />
+
+                      {isDeleting
+                        ? "Suppression..."
+                        : "Supprimer"}
+                    </button>
+                  </div>
+                </article>
+              );
+            }
+          )}
+        </div>
+      )}
     </section>
   );
 }
