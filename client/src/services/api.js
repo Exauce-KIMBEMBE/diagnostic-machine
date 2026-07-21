@@ -643,3 +643,46 @@ export { API_URL };
     padding: 16px;
   }
 }
+
+.power-chart-description {
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.power-chart-tooltip {
+  min-width: 210px;
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+
+.power-chart-tooltip > strong {
+  display: block;
+  margin-bottom: 12px;
+  color: var(--text-primary);
+  font-size: 0.84rem;
+}
+
+.power-tooltip-values {
+  display: grid;
+  gap: 8px;
+}
+
+.power-tooltip-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+}
+
+.power-tooltip-row span {
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+.power-tooltip-row strong {
+  color: var(--text-primary);
+}
