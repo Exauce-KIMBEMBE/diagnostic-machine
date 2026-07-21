@@ -1,5 +1,48 @@
 import { pool } from "./database.js";
 
+async function columnExists(
+  connection,
+  tableName,
+  columnName
+) {
+  const [rows] = await connection.query(
+    `
+    SELECT COUNT(*) AS total
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = ?
+      AND COLUMN_NAME = ?
+    `,
+    [tableName, columnName]
+  );
+
+  return Number(rows[0].total) > 0;
+}
+
+async function addColumnIfMissing(
+  connection,
+  tableName,
+  columnName,
+  definition
+) {
+  const exists = await columnExists(
+    connection,
+    tableName,
+    columnName
+  );
+
+  if (!exists) {
+    await connection.query(`
+      ALTER TABLE ${tableName}
+      ADD COLUMN ${columnName} ${definition}
+    `);
+
+    console.log(
+      `Colonne ajoutée : ${tableName}.${columnName}`
+    );
+  }
+}
+
 export async function initializeDatabase() {
   const connection = await pool.getConnection();
 
@@ -22,20 +65,19 @@ export async function initializeDatabase() {
 
         description TEXT,
 
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP
+        DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
     await connection.query(`
-      INSERT IGNORE INTO machines
-      (
+      INSERT IGNORE INTO machines (
         id,
         name,
         serial_number,
         location
       )
-      VALUES
-      (
+      VALUES (
         1,
         'Machine principale',
         'MACHINE-001',
@@ -53,7 +95,8 @@ export async function initializeDatabase() {
       CREATE TABLE IF NOT EXISTS machine_measurements (
         id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
 
-        machine_id BIGINT UNSIGNED NOT NULL DEFAULT 1,
+        machine_id BIGINT UNSIGNED
+        NOT NULL DEFAULT 1,
 
         l1_voltage DECIMAL(10,2) DEFAULT 0,
         l1_current DECIMAL(10,3) DEFAULT 0,
@@ -80,9 +123,23 @@ export async function initializeDatabase() {
 
         flow_rate DECIMAL(10,2) DEFAULT 0,
 
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        tank_distance_cm DECIMAL(10,2)
+        DEFAULT 0,
+
+        tank_level_cm DECIMAL(10,2)
+        DEFAULT 0,
+
+        tank_level_percent DECIMAL(6,2)
+        DEFAULT 0,
+
+        tank_volume_liters DECIMAL(14,2)
+        DEFAULT 0,
+
+        created_at TIMESTAMP
+        DEFAULT CURRENT_TIMESTAMP,
 
         INDEX idx_measurements_machine(machine_id),
+
         INDEX idx_measurements_created(created_at),
 
         CONSTRAINT fk_measurements_machine
@@ -91,6 +148,38 @@ export async function initializeDatabase() {
         ON DELETE CASCADE
       )
     `);
+
+    /*
+     * Ajout des colonnes si la table existait déjà.
+     */
+
+    await addColumnIfMissing(
+      connection,
+      "machine_measurements",
+      "tank_distance_cm",
+      "DECIMAL(10,2) DEFAULT 0 AFTER flow_rate"
+    );
+
+    await addColumnIfMissing(
+      connection,
+      "machine_measurements",
+      "tank_level_cm",
+      "DECIMAL(10,2) DEFAULT 0 AFTER tank_distance_cm"
+    );
+
+    await addColumnIfMissing(
+      connection,
+      "machine_measurements",
+      "tank_level_percent",
+      "DECIMAL(6,2) DEFAULT 0 AFTER tank_level_cm"
+    );
+
+    await addColumnIfMissing(
+      connection,
+      "machine_measurements",
+      "tank_volume_liters",
+      "DECIMAL(14,2) DEFAULT 0 AFTER tank_level_percent"
+    );
 
     /*
      * ===============================
@@ -102,11 +191,15 @@ export async function initializeDatabase() {
       CREATE TABLE IF NOT EXISTS machine_alerts (
         id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
 
-        machine_id BIGINT UNSIGNED NOT NULL DEFAULT 1,
+        machine_id BIGINT UNSIGNED
+        NOT NULL DEFAULT 1,
 
         source VARCHAR(50) NOT NULL,
 
-        level ENUM('warning', 'critical') NOT NULL,
+        level ENUM(
+          'warning',
+          'critical'
+        ) NOT NULL,
 
         message VARCHAR(255) NOT NULL,
 
@@ -118,9 +211,11 @@ export async function initializeDatabase() {
 
         acknowledged_at DATETIME NULL,
 
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP
+        DEFAULT CURRENT_TIMESTAMP,
 
         INDEX idx_alerts_machine(machine_id),
+
         INDEX idx_alerts_created(created_at),
 
         CONSTRAINT fk_alerts_machine
@@ -140,7 +235,8 @@ export async function initializeDatabase() {
       CREATE TABLE IF NOT EXISTS machine_thresholds (
         id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
 
-        machine_id BIGINT UNSIGNED NOT NULL DEFAULT 1,
+        machine_id BIGINT UNSIGNED
+        NOT NULL DEFAULT 1,
 
         source VARCHAR(50) NOT NULL,
 
@@ -175,17 +271,114 @@ export async function initializeDatabase() {
 
     /*
      * ===============================
+     * SEUILS PAR DÉFAUT
+     * ===============================
+     */
+
+    const defaultThresholds = [
+      [1, "L1", "voltage", 210, 240, null, null, "V"],
+      [1, "L1", "current", 0, 10, null, null, "A"],
+      [1, "L1", "power", 0, 2200, null, null, "W"],
+      [1, "L1", "frequency", 49, 51, null, null, "Hz"],
+      [1, "L1", "powerFactor", 0.8, 1, null, null, ""],
+
+      [1, "L2", "voltage", 210, 240, null, null, "V"],
+      [1, "L2", "current", 0, 10, null, null, "A"],
+      [1, "L2", "power", 0, 2200, null, null, "W"],
+      [1, "L2", "frequency", 49, 51, null, null, "Hz"],
+      [1, "L2", "powerFactor", 0.8, 1, null, null, ""],
+
+      [1, "L3", "voltage", 210, 240, null, null, "V"],
+      [1, "L3", "current", 0, 10, null, null, "A"],
+      [1, "L3", "power", 0, 2200, null, null, "W"],
+      [1, "L3", "frequency", 49, 51, null, null, "Hz"],
+      [1, "L3", "powerFactor", 0.8, 1, null, null, ""],
+
+      [
+        1,
+        "temperature",
+        "temperature",
+        -20,
+        125,
+        60,
+        80,
+        "°C",
+      ],
+
+      [
+        1,
+        "flow",
+        "flowRate",
+        5,
+        60,
+        null,
+        null,
+        "L/min",
+      ],
+
+      [
+        1,
+        "tank",
+        "levelPercent",
+        0,
+        100,
+        20,
+        10,
+        "%",
+      ],
+
+      [
+        1,
+        "tank",
+        "distanceCm",
+        20,
+        600,
+        null,
+        null,
+        "cm",
+      ],
+
+      [
+        1,
+        "tank",
+        "volumeLiters",
+        0,
+        1000,
+        null,
+        null,
+        "L",
+      ],
+    ];
+
+    for (const threshold of defaultThresholds) {
+      await connection.query(
+        `
+        INSERT IGNORE INTO machine_thresholds (
+          machine_id,
+          source,
+          parameter_name,
+          minimum_value,
+          maximum_value,
+          warning_value,
+          critical_value,
+          unit
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        threshold
+      );
+    }
+
+    /*
+     * ===============================
      * CONFIGURATION DES MACHINES
      * ===============================
-     *
-     * Ces paramètres seront modifiables
-     * depuis le dashboard puis récupérés
-     * par l'ESP32.
      */
 
     await connection.query(`
       CREATE TABLE IF NOT EXISTS machine_configurations (
-        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        id BIGINT UNSIGNED
+        AUTO_INCREMENT PRIMARY KEY,
 
         machine_id BIGINT UNSIGNED NOT NULL,
 
@@ -208,7 +401,9 @@ export async function initializeDatabase() {
         DEFAULT CURRENT_TIMESTAMP
         ON UPDATE CURRENT_TIMESTAMP,
 
-        UNIQUE KEY unique_machine_configuration(machine_id),
+        UNIQUE KEY unique_machine_configuration(
+          machine_id
+        ),
 
         CONSTRAINT fk_configuration_machine
         FOREIGN KEY(machine_id)
@@ -218,10 +413,7 @@ export async function initializeDatabase() {
     `);
 
     /*
-     * Configuration par défaut de la machine 1.
-     *
-     * INSERT IGNORE évite de remplacer les valeurs
-     * déjà enregistrées depuis le dashboard.
+     * Configuration initiale de la machine 1.
      */
 
     await connection.query(`
@@ -245,8 +437,10 @@ export async function initializeDatabase() {
     console.log("Base de données initialisée");
     console.log("Table machines             OK");
     console.log("Table measurements         OK");
+    console.log("Colonnes réservoir         OK");
     console.log("Table alerts               OK");
     console.log("Table thresholds           OK");
+    console.log("Seuils par défaut          OK");
     console.log("Table configurations       OK");
     console.log("====================================");
   } catch (error) {
