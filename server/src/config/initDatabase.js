@@ -4,7 +4,6 @@ export async function initializeDatabase() {
   const connection = await pool.getConnection();
 
   try {
-
     /*
      * ===============================
      * TABLE DES MACHINES
@@ -13,7 +12,6 @@ export async function initializeDatabase() {
 
     await connection.query(`
       CREATE TABLE IF NOT EXISTS machines (
-
         id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
 
         name VARCHAR(100) NOT NULL,
@@ -25,16 +23,24 @@ export async function initializeDatabase() {
         description TEXT,
 
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-
       )
     `);
 
     await connection.query(`
       INSERT IGNORE INTO machines
-      (id,name,serial_number,location)
-
+      (
+        id,
+        name,
+        serial_number,
+        location
+      )
       VALUES
-      (1,'Machine principale','MACHINE-001','Usine')
+      (
+        1,
+        'Machine principale',
+        'MACHINE-001',
+        'Usine'
+      )
     `);
 
     /*
@@ -45,7 +51,6 @@ export async function initializeDatabase() {
 
     await connection.query(`
       CREATE TABLE IF NOT EXISTS machine_measurements (
-
         id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
 
         machine_id BIGINT UNSIGNED NOT NULL DEFAULT 1,
@@ -77,14 +82,13 @@ export async function initializeDatabase() {
 
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-        INDEX idx_machine(machine_id),
-        INDEX idx_created(created_at),
+        INDEX idx_measurements_machine(machine_id),
+        INDEX idx_measurements_created(created_at),
 
         CONSTRAINT fk_measurements_machine
         FOREIGN KEY(machine_id)
         REFERENCES machines(id)
         ON DELETE CASCADE
-
       )
     `);
 
@@ -96,14 +100,13 @@ export async function initializeDatabase() {
 
     await connection.query(`
       CREATE TABLE IF NOT EXISTS machine_alerts (
-
         id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
 
         machine_id BIGINT UNSIGNED NOT NULL DEFAULT 1,
 
         source VARCHAR(50) NOT NULL,
 
-        level ENUM('warning','critical') NOT NULL,
+        level ENUM('warning', 'critical') NOT NULL,
 
         message VARCHAR(255) NOT NULL,
 
@@ -117,14 +120,13 @@ export async function initializeDatabase() {
 
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-        INDEX idx_machine(machine_id),
-        INDEX idx_created(created_at),
+        INDEX idx_alerts_machine(machine_id),
+        INDEX idx_alerts_created(created_at),
 
         CONSTRAINT fk_alerts_machine
         FOREIGN KEY(machine_id)
         REFERENCES machines(id)
         ON DELETE CASCADE
-
       )
     `);
 
@@ -136,7 +138,6 @@ export async function initializeDatabase() {
 
     await connection.query(`
       CREATE TABLE IF NOT EXISTS machine_thresholds (
-
         id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
 
         machine_id BIGINT UNSIGNED NOT NULL DEFAULT 1,
@@ -159,8 +160,7 @@ export async function initializeDatabase() {
         DEFAULT CURRENT_TIMESTAMP
         ON UPDATE CURRENT_TIMESTAMP,
 
-        UNIQUE KEY unique_machine_parameter
-        (
+        UNIQUE KEY unique_machine_parameter (
           machine_id,
           source,
           parameter_name
@@ -170,27 +170,93 @@ export async function initializeDatabase() {
         FOREIGN KEY(machine_id)
         REFERENCES machines(id)
         ON DELETE CASCADE
+      )
+    `);
 
+    /*
+     * ===============================
+     * CONFIGURATION DES MACHINES
+     * ===============================
+     *
+     * Ces paramètres seront modifiables
+     * depuis le dashboard puis récupérés
+     * par l'ESP32.
+     */
+
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS machine_configurations (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+
+        machine_id BIGINT UNSIGNED NOT NULL,
+
+        ultrasonic_offset_cm DECIMAL(10,2)
+        NOT NULL DEFAULT 0,
+
+        reservoir_height_cm DECIMAL(10,2)
+        NOT NULL DEFAULT 100,
+
+        reservoir_capacity_liters DECIMAL(14,2)
+        NOT NULL DEFAULT 1000,
+
+        temperature_offset_c DECIMAL(8,2)
+        NOT NULL DEFAULT 0,
+
+        created_at TIMESTAMP
+        DEFAULT CURRENT_TIMESTAMP,
+
+        updated_at TIMESTAMP
+        DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP,
+
+        UNIQUE KEY unique_machine_configuration(machine_id),
+
+        CONSTRAINT fk_configuration_machine
+        FOREIGN KEY(machine_id)
+        REFERENCES machines(id)
+        ON DELETE CASCADE
+      )
+    `);
+
+    /*
+     * Configuration par défaut de la machine 1.
+     *
+     * INSERT IGNORE évite de remplacer les valeurs
+     * déjà enregistrées depuis le dashboard.
+     */
+
+    await connection.query(`
+      INSERT IGNORE INTO machine_configurations (
+        machine_id,
+        ultrasonic_offset_cm,
+        reservoir_height_cm,
+        reservoir_capacity_liters,
+        temperature_offset_c
+      )
+      VALUES (
+        1,
+        0,
+        100,
+        1000,
+        0
       )
     `);
 
     console.log("====================================");
     console.log("Base de données initialisée");
-    console.log("Table machines         OK");
-    console.log("Table measurements     OK");
-    console.log("Table alerts           OK");
-    console.log("Table thresholds       OK");
+    console.log("Table machines             OK");
+    console.log("Table measurements         OK");
+    console.log("Table alerts               OK");
+    console.log("Table thresholds           OK");
+    console.log("Table configurations       OK");
     console.log("====================================");
-
   } catch (error) {
-
-    console.error(error);
+    console.error(
+      "Erreur pendant l'initialisation de la base :",
+      error
+    );
 
     throw error;
-
   } finally {
-
     connection.release();
-
   }
 }
