@@ -93,8 +93,8 @@ export default function Settings({
   const [error, setError] =
     useState("");
 
-  const loadThresholds = useCallback(
-    async () => {
+  const loadThresholds =
+    useCallback(async () => {
       try {
         setLoading(true);
         setError("");
@@ -125,9 +125,7 @@ export default function Settings({
       } finally {
         setLoading(false);
       }
-    },
-    []
-  );
+    }, []);
 
   useEffect(() => {
     loadThresholds();
@@ -194,13 +192,13 @@ export default function Settings({
   return (
     <main className="settings-page">
       <header className="settings-header">
-        <div>
+        <div className="settings-heading">
           <span className="dashboard-eyebrow">
             Configuration
           </span>
 
           <h1>
-            <Settings2 size={32} />
+            <Settings2 size={30} />
             Paramètres
           </h1>
 
@@ -243,13 +241,13 @@ export default function Settings({
         </div>
       </header>
 
-      {loading ? (
+      {loading && (
         <section className="dashboard-message">
           Chargement des seuils...
         </section>
-      ) : null}
+      )}
 
-      {error ? (
+      {error && (
         <section className="dashboard-error">
           <strong>Erreur</strong>
           <p>{error}</p>
@@ -262,16 +260,16 @@ export default function Settings({
             Réessayer
           </button>
         </section>
-      ) : null}
+      )}
 
-      {!loading && !error ? (
+      {!loading && !error && (
         <ThresholdForm
           machineId={MACHINE_ID}
           thresholds={thresholds}
           onSaved={handleSaved}
           onDeleted={handleDeleted}
         />
-      ) : null}
+      )}
     </main>
   );
 }
