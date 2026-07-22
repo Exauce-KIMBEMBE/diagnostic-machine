@@ -10,7 +10,7 @@ import { io } from "socket.io-client";
 import {
   API_URL,
   SOCKET_URL,
-} from "../config/default.js";
+} from "../config/defaults.js";
 
 import {
   getMachineState,
