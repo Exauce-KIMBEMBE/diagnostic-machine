@@ -1,7 +1,18 @@
-function formatValue(value, digits = 1) {
+function toNumber(value) {
   const number = Number(value);
 
-  if (!Number.isFinite(number)) {
+  return Number.isFinite(number)
+    ? number
+    : null;
+}
+
+function formatValue(
+  value,
+  digits = 1
+) {
+  const number = toNumber(value);
+
+  if (number === null) {
     return "--";
   }
 
@@ -39,19 +50,36 @@ export default function SensorCard({
   icon: Icon,
   digits = 1,
 }) {
+  const normalizedStatus =
+    statusLabels[status]
+      ? status
+      : "offline";
+
+  const formattedValue =
+    formatValue(
+      value,
+      digits
+    );
+
   return (
     <article
-      className={`sensor-card sensor-card-${status}`}
+      className={`sensor-card sensor-card-${normalizedStatus}`}
     >
       <div className="sensor-card-header">
         <div className="sensor-card-icon">
-          {Icon && <Icon size={28} />}
+          {Icon ? (
+            <Icon size={28} />
+          ) : null}
         </div>
 
         <span
-          className={`status-badge status-${status}`}
+          className={`status-badge status-${normalizedStatus}`}
         >
-          {statusLabels[status]}
+          {
+            statusLabels[
+              normalizedStatus
+            ]
+          }
         </span>
       </div>
 
@@ -61,16 +89,30 @@ export default function SensorCard({
         </span>
 
         <strong className="sensor-card-value">
-          {formatValue(value, digits)}
-          <small>{unit}</small>
+          {formattedValue}
+
+          {unit ? (
+            <small>
+              {unit}
+            </small>
+          ) : null}
         </strong>
       </div>
 
-      <div className="sensor-progress">
+      <div
+        className="sensor-progress"
+        aria-label={`État du capteur : ${
+          statusLabels[
+            normalizedStatus
+          ]
+        }`}
+      >
         <div
-          className={`sensor-progress-fill sensor-progress-${status}`}
+          className={`sensor-progress-fill sensor-progress-${normalizedStatus}`}
           style={{
-            width: `${getProgress(status)}%`,
+            width: `${getProgress(
+              normalizedStatus
+            )}%`,
           }}
         />
       </div>
