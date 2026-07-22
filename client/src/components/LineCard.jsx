@@ -14,10 +14,21 @@ const statusLabels = {
   offline: "Hors ligne",
 };
 
-function formatValue(value, digits = 1) {
+function toNumber(value) {
   const number = Number(value);
 
-  if (!Number.isFinite(number)) {
+  return Number.isFinite(number)
+    ? number
+    : null;
+}
+
+function formatValue(
+  value,
+  digits = 1
+) {
+  const number = toNumber(value);
+
+  if (number === null) {
     return "--";
   }
 
@@ -25,18 +36,23 @@ function formatValue(value, digits = 1) {
 }
 
 function formatPower(value) {
-  const number = Number(value);
+  const number = toNumber(value);
 
-  if (!Number.isFinite(number)) {
+  if (number === null) {
     return {
       value: "--",
       unit: "W",
     };
   }
 
-  if (Math.abs(number) >= 1000) {
+  if (
+    Math.abs(number) >=
+    1000
+  ) {
     return {
-      value: (number / 1000).toFixed(2),
+      value: (
+        number / 1000
+      ).toFixed(2),
       unit: "kW",
     };
   }
@@ -47,54 +63,161 @@ function formatPower(value) {
   };
 }
 
+function formatApparentPower(
+  value
+) {
+  const number = toNumber(value);
+
+  if (number === null) {
+    return {
+      value: "--",
+      unit: "VA",
+    };
+  }
+
+  if (
+    Math.abs(number) >=
+    1000
+  ) {
+    return {
+      value: (
+        number / 1000
+      ).toFixed(2),
+      unit: "kVA",
+    };
+  }
+
+  return {
+    value: number.toFixed(1),
+    unit: "VA",
+  };
+}
+
+function formatReactivePower(
+  value
+) {
+  const number = toNumber(value);
+
+  if (number === null) {
+    return {
+      value: "--",
+      unit: "VAR",
+    };
+  }
+
+  if (
+    Math.abs(number) >=
+    1000
+  ) {
+    return {
+      value: (
+        number / 1000
+      ).toFixed(2),
+      unit: "kVAR",
+    };
+  }
+
+  return {
+    value: number.toFixed(1),
+    unit: "VAR",
+  };
+}
+
 function formatDate(value) {
   if (!value) {
     return "--";
   }
 
-  const date = new Date(value);
+  const date =
+    new Date(value);
 
-  if (Number.isNaN(date.getTime())) {
+  if (
+    Number.isNaN(
+      date.getTime()
+    )
+  ) {
     return "--";
   }
 
-  return date.toLocaleString("fr-FR");
+  return date.toLocaleString(
+    "fr-FR"
+  );
 }
 
 export default function LineCard({
   title,
   data,
+  lineId,
 }) {
-  const status = data?.status || "offline";
+  const status =
+    data?.status ??
+    "offline";
 
   const voltage =
-    Number(data?.voltage) || 0;
+    toNumber(data?.voltage);
 
   const current =
-    Number(data?.current) || 0;
+    toNumber(data?.current);
 
   const activePower =
-    Number(data?.power) || 0;
+    toNumber(data?.power);
+
+  const transmittedPowerFactor =
+    toNumber(
+      data?.powerFactor ??
+        data?.power_factor
+    );
 
   const apparentPower =
-    voltage * current;
+    voltage !== null &&
+    current !== null
+      ? voltage * current
+      : null;
 
-  const reactivePower = Math.sqrt(
-    Math.max(
-      0,
-      apparentPower ** 2 -
-        activePower ** 2
-    )
-  );
+  const calculatedPowerFactor =
+    apparentPower !== null &&
+    apparentPower > 0 &&
+    activePower !== null
+      ? activePower /
+        apparentPower
+      : null;
 
-  const formattedPower =
-    formatPower(data?.power);
+  const powerFactor =
+    transmittedPowerFactor ??
+    calculatedPowerFactor;
+
+  const reactivePower =
+    apparentPower !== null &&
+    activePower !== null
+      ? Math.sqrt(
+          Math.max(
+            0,
+            apparentPower ** 2 -
+              activePower ** 2
+          )
+        )
+      : null;
+
+  const formattedActivePower =
+    formatPower(
+      activePower
+    );
+
+  const formattedApparentPower =
+    formatApparentPower(
+      apparentPower
+    );
+
+  const formattedReactivePower =
+    formatReactivePower(
+      reactivePower
+    );
 
   const metrics = [
     {
       label: "Tension",
       value: formatValue(
-        data?.voltage,
+        voltage,
         1
       ),
       unit: "V",
@@ -103,34 +226,37 @@ export default function LineCard({
     {
       label: "Courant",
       value: formatValue(
-        data?.current,
+        current,
         3
       ),
       unit: "A",
       icon: Activity,
     },
     {
-      label: "Puissance active",
-      value: formattedPower.value,
-      unit: formattedPower.unit,
+      label:
+        "Puissance active",
+      value:
+        formattedActivePower.value,
+      unit:
+        formattedActivePower.unit,
       icon: Gauge,
     },
     {
-      label: "Puissance apparente",
-      value: formatValue(
-        apparentPower,
-        1
-      ),
-      unit: "VA",
+      label:
+        "Puissance apparente",
+      value:
+        formattedApparentPower.value,
+      unit:
+        formattedApparentPower.unit,
       icon: Gauge,
     },
     {
-      label: "Puissance réactive",
-      value: formatValue(
-        reactivePower,
-        1
-      ),
-      unit: "VAR",
+      label:
+        "Puissance réactive",
+      value:
+        formattedReactivePower.value,
+      unit:
+        formattedReactivePower.unit,
       icon: Gauge,
     },
     {
@@ -154,7 +280,7 @@ export default function LineCard({
     {
       label: "cos φ",
       value: formatValue(
-        data?.powerFactor,
+        powerFactor,
         2
       ),
       unit: "",
@@ -166,11 +292,13 @@ export default function LineCard({
     data?.updatedAt ??
     data?.updated_at ??
     data?.timestamp ??
+    data?.createdAt ??
     data?.created_at;
 
   return (
     <article
       className={`line-card line-card-${status}`}
+      data-line={lineId}
     >
       <div className="line-card-header">
         <div>
@@ -178,50 +306,68 @@ export default function LineCard({
             Mesure électrique
           </span>
 
-          <h2>{title}</h2>
+          <h2>
+            {title}
+          </h2>
         </div>
 
         <span
           className={`status-badge status-${status}`}
         >
-          {statusLabels[status] || status}
+          {statusLabels[
+            status
+          ] ?? status}
         </span>
       </div>
 
       <div className="line-card-metrics">
-        {metrics.map((metric) => {
-          const Icon = metric.icon;
+        {metrics.map(
+          (metric) => {
+            const Icon =
+              metric.icon;
 
-          return (
-            <div
-              className="line-card-metric"
-              key={metric.label}
-            >
-              <div className="metric-icon">
-                <Icon size={20} />
+            return (
+              <div
+                className="line-card-metric"
+                key={metric.label}
+              >
+                <div className="metric-icon">
+                  <Icon
+                    size={20}
+                  />
+                </div>
+
+                <div className="metric-content">
+                  <span className="metric-label">
+                    {
+                      metric.label
+                    }
+                  </span>
+
+                  <strong
+                    className={`metric-value metric-${status}`}
+                  >
+                    {
+                      metric.value
+                    }
+
+                    {metric.unit
+                      ? ` ${metric.unit}`
+                      : ""}
+                  </strong>
+                </div>
               </div>
-
-              <div>
-                <span className="metric-label">
-                  {metric.label}
-                </span>
-
-                <strong
-                  className={`metric-value metric-${status}`}
-                >
-                  {metric.value}{" "}
-                  {metric.unit}
-                </strong>
-              </div>
-            </div>
-          );
-        })}
+            );
+          }
+        )}
       </div>
 
       <p className="line-update">
         Dernière mesure :{" "}
         <strong>
-          {formatDate(updatedAt)}
+          {formatDate(
+            updatedAt
+          )}
         </strong>
       </p>
     </article>
