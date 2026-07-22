@@ -1,13 +1,19 @@
+import { useState } from "react";
+
 import {
   Activity,
   AlertTriangle,
+  BarChart3,
+  CalendarDays,
+  Download,
   Droplets,
   Gauge,
+  Image,
   RefreshCw,
   Server,
   Settings,
+  Sheet,
   Thermometer,
-  Zap,
 } from "lucide-react";
 
 import LineCard from "../components/LineCard.jsx";
@@ -19,10 +25,7 @@ import { useMachineData } from "../hooks/useMachineData.js";
 
 function toNumber(value) {
   const number = Number(value);
-
-  return Number.isFinite(number)
-    ? number
-    : 0;
+  return Number.isFinite(number) ? number : 0;
 }
 
 function formatPower(value) {
@@ -70,9 +73,7 @@ function getGlobalStatus({
   }
 
   const hasCriticalAlert = alerts.some(
-    (alert) =>
-      getAlertLevel(alert) ===
-      "critical"
+    (alert) => getAlertLevel(alert) === "critical"
   );
 
   if (hasCriticalAlert) {
@@ -88,27 +89,17 @@ function getGlobalStatus({
     tank?.status,
   ];
 
-  if (
-    statuses.some(
-      (status) =>
-        status === "critical"
-    )
-  ) {
+  if (statuses.some((status) => status === "critical")) {
     return "critical";
   }
 
   const hasWarningAlert = alerts.some(
-    (alert) =>
-      getAlertLevel(alert) ===
-      "warning"
+    (alert) => getAlertLevel(alert) === "warning"
   );
 
   if (
     hasWarningAlert ||
-    statuses.some(
-      (status) =>
-        status === "warning"
-    )
+    statuses.some((status) => status === "warning")
   ) {
     return "warning";
   }
@@ -122,6 +113,34 @@ const globalStatusLabels = {
   critical: "Anomalie critique",
   offline: "Machine hors ligne",
 };
+
+const availableMetrics = [
+  { id: "power", label: "Puissance", unit: "kW" },
+  { id: "current", label: "Courant", unit: "A" },
+  { id: "voltage", label: "Tension", unit: "V" },
+  { id: "energy", label: "Énergie", unit: "kWh" },
+  { id: "temperature", label: "Température", unit: "°C" },
+  { id: "flow", label: "Débit", unit: "L/min" },
+  { id: "tank", label: "Niveau réservoir", unit: "%" },
+  { id: "powerFactor", label: "Facteur de puissance", unit: "" },
+  { id: "frequency", label: "Fréquence", unit: "Hz" },
+  { id: "cost", label: "Coût", unit: "€" },
+];
+
+const periods = [
+  { id: "realtime", label: "Temps réel" },
+  { id: "1h", label: "1 h" },
+  { id: "24h", label: "24 h" },
+  { id: "7d", label: "7 j" },
+  { id: "30d", label: "30 j" },
+];
+
+const chartTypes = [
+  { id: "line", label: "Courbe" },
+  { id: "bar", label: "Barres" },
+  { id: "area", label: "Aires" },
+  { id: "pie", label: "Camembert" },
+];
 
 export default function Dashboard({
   onOpenSettings,
@@ -139,63 +158,70 @@ export default function Dashboard({
     setAlerts,
   } = useMachineData(1);
 
+  const [selectedLines, setSelectedLines] = useState([
+    "L1",
+    "L2",
+    "L3",
+  ]);
+
+  const [selectedMetrics, setSelectedMetrics] = useState([
+    "power",
+  ]);
+
+  const [chartType, setChartType] = useState("line");
+
   const lines = machine?.lines ?? {};
-  const temperature =
-    machine?.temperature ?? {};
+  const temperature = machine?.temperature ?? {};
   const flow = machine?.flow ?? {};
   const tank = machine?.tank ?? {};
 
-  const line1Power = toNumber(
-    lines?.L1?.power
-  );
-
-  const line2Power = toNumber(
-    lines?.L2?.power
-  );
-
-  const line3Power = toNumber(
-    lines?.L3?.power
-  );
+  const line1Power = toNumber(lines?.L1?.power);
+  const line2Power = toNumber(lines?.L2?.power);
+  const line3Power = toNumber(lines?.L3?.power);
 
   const totalPower =
     line1Power +
     line2Power +
     line3Power;
 
-  const criticalAlerts =
-    Array.isArray(alerts)
-      ? alerts.filter(
-          (alert) =>
-            getAlertLevel(alert) ===
-            "critical"
-        ).length
-      : 0;
+  const safeAlerts = Array.isArray(alerts)
+    ? alerts
+    : [];
 
-  const warningAlerts =
-    Array.isArray(alerts)
-      ? alerts.filter(
-          (alert) =>
-            getAlertLevel(alert) ===
-            "warning"
-        ).length
-      : 0;
+  const globalStatus = getGlobalStatus({
+    socketConnected,
+    alerts: safeAlerts,
+    lines,
+    temperature,
+    flow,
+    tank,
+  });
 
-  const globalStatus =
-    getGlobalStatus({
-      socketConnected,
-      alerts:
-        Array.isArray(alerts)
-          ? alerts
-          : [],
-      lines,
-      temperature,
-      flow,
-      tank,
+  function toggleLine(lineId) {
+    setSelectedLines((currentLines) => {
+      if (currentLines.includes(lineId)) {
+        return currentLines.filter(
+          (currentLine) => currentLine !== lineId
+        );
+      }
+
+      return [...currentLines, lineId];
     });
+  }
 
-  function handleAlertAcknowledged(
-    alertId
-  ) {
+  function toggleMetric(metricId) {
+    setSelectedMetrics((currentMetrics) => {
+      if (currentMetrics.includes(metricId)) {
+        return currentMetrics.filter(
+          (currentMetric) => currentMetric !== metricId
+        );
+      }
+
+      return [...currentMetrics, metricId];
+    });
+  }
+
+  function handleAlertAcknowledged(alertId) {
     setAlerts((previousAlerts) =>
       previousAlerts.filter(
         (alert) =>
@@ -210,404 +236,464 @@ export default function Dashboard({
 
   return (
     <main className="dashboard-page">
-      <header className="dashboard-header">
-        <div>
-          <span className="dashboard-eyebrow">
-            Supervision industrielle
-          </span>
+      <header className="dashboard-machine-header">
+        <div className="machine-selector">
+          <span>Machine sélectionnée</span>
 
-          <h1>Diagnostic machine</h1>
-
-          <p>
-            Suivi des trois lignes
-            électriques, de la
-            température, du débit et du
-            niveau du réservoir.
-          </p>
+          <strong>
+            {machine?.name ?? "Atelier de production"}
+          </strong>
         </div>
 
-        <div className="dashboard-actions">
-          <div
+        <div className="machine-identity">
+          <span>ID Machine</span>
+
+          <strong>
+            {machine?.id
+              ? String(machine.id).padStart(3, "0")
+              : "001"}
+          </strong>
+        </div>
+
+        <div className="machine-name">
+          <span>Nom de la machine</span>
+
+          <strong>
+            {machine?.name ?? "Atelier de production"}
+          </strong>
+        </div>
+
+        <div className="machine-connection">
+          <span>Statut</span>
+
+          <strong
             className={
               socketConnected
-                ? "connection-status connected"
-                : "connection-status disconnected"
+                ? "machine-online"
+                : "machine-offline"
             }
           >
-            <Server size={18} />
+            {socketConnected
+              ? "● En ligne"
+              : "● Hors ligne"}
+          </strong>
+        </div>
 
-            <span>
-              {socketConnected
-                ? "Temps réel connecté"
-                : "Temps réel déconnecté"}
-            </span>
-          </div>
-
+        <div className="dashboard-header-actions">
           <button
-            className="refresh-button"
             type="button"
+            className="refresh-button"
             onClick={reload}
             disabled={loading}
+            title="Actualiser les données"
           >
             <RefreshCw
               size={18}
               className={
-                loading
-                  ? "icon-spinning"
-                  : ""
+                loading ? "icon-spinning" : ""
               }
             />
-
-            {loading
-              ? "Actualisation..."
-              : "Actualiser"}
           </button>
 
           <button
-            className="settings-button"
             type="button"
+            className="settings-button"
             onClick={onOpenSettings}
+            title="Ouvrir les paramètres"
           >
             <Settings size={18} />
-            Paramètres
           </button>
         </div>
       </header>
 
-      {loading ? (
+      {loading && (
         <section className="dashboard-message">
-          <Activity size={28} />
-
-          <p>
-            Chargement des données...
-          </p>
+          <Activity size={26} />
+          <p>Chargement des données...</p>
         </section>
-      ) : null}
+      )}
 
-      {error ? (
+      {error && (
         <section className="dashboard-error">
-          <strong>Erreur</strong>
-
+          <strong>Erreur de chargement</strong>
           <p>{error}</p>
 
-          <button
-            className="retry-button"
-            type="button"
-            onClick={reload}
-          >
+          <button type="button" onClick={reload}>
             Réessayer
           </button>
         </section>
-      ) : null}
+      )}
 
-      <section
-        className={`machine-summary machine-summary-${globalStatus}`}
-      >
-        <div className="machine-summary-status">
-          <div className="machine-summary-icon">
-            {globalStatus ===
-            "critical" ? (
-              <AlertTriangle
-                size={28}
+      <div className="dashboard-workspace">
+        <div className="dashboard-main-content">
+          <section
+            className={`machine-summary machine-summary-${globalStatus}`}
+          >
+            <div className="machine-summary-status">
+              <div className="machine-summary-icon">
+                {globalStatus === "critical" ? (
+                  <AlertTriangle size={28} />
+                ) : (
+                  <Activity size={28} />
+                )}
+              </div>
+
+              <div>
+                <span>État général</span>
+
+                <strong>
+                  {globalStatusLabels[globalStatus]}
+                </strong>
+              </div>
+            </div>
+
+            <div className="machine-summary-metrics">
+              <div>
+                <span>Puissance totale</span>
+                <strong>{formatPower(totalPower)}</strong>
+              </div>
+
+              <div>
+                <span>Température</span>
+
+                <strong>
+                  {toNumber(temperature.value).toFixed(1)} °C
+                </strong>
+              </div>
+
+              <div>
+                <span>Débit</span>
+
+                <strong>
+                  {toNumber(flow.value).toFixed(2)} L/min
+                </strong>
+              </div>
+
+              <div>
+                <span>Réservoir</span>
+
+                <strong>
+                  {toNumber(tank.levelPercent).toFixed(1)} %
+                </strong>
+              </div>
+            </div>
+          </section>
+
+          <section className="lines-grid">
+            <div className="line-wrapper line-wrapper-1">
+              <LineCard
+                title="Ligne 1"
+                data={lines.L1}
+                lineId="L1"
               />
-            ) : (
-              <Activity size={28} />
-            )}
-          </div>
+            </div>
 
-          <div>
-            <span>
-              État général
-            </span>
+            <div className="line-wrapper line-wrapper-2">
+              <LineCard
+                title="Ligne 2"
+                data={lines.L2}
+                lineId="L2"
+              />
+            </div>
 
-            <strong>
-              {
-                globalStatusLabels[
-                  globalStatus
-                ]
-              }
-            </strong>
-          </div>
-        </div>
+            <div className="line-wrapper line-wrapper-3">
+              <LineCard
+                title="Ligne 3"
+                data={lines.L3}
+                lineId="L3"
+              />
+            </div>
+          </section>
 
-        <div className="machine-summary-metrics">
-          <div>
-            <span>
-              Puissance totale
-            </span>
-
-            <strong>
-              {formatPower(totalPower)}
-            </strong>
-          </div>
-
-          <div>
-            <span>
-              Température
-            </span>
-
-            <strong>
-              {toNumber(
-                temperature.value
-              ).toFixed(1)}{" "}
-              °C
-            </strong>
-          </div>
-
-          <div>
-            <span>Débit</span>
-
-            <strong>
-              {toNumber(
-                flow.value
-              ).toFixed(2)}{" "}
-              L/min
-            </strong>
-          </div>
-
-          <div>
-            <span>
-              Réservoir
-            </span>
-
-            <strong>
-              {toNumber(
-                tank.levelPercent
-              ).toFixed(1)}{" "}
-              %
-            </strong>
-          </div>
-        </div>
-      </section>
-
-      <section className="dashboard-indicators">
-        <article className="indicator-card">
-          <div className="indicator-icon">
-            <Zap size={22} />
-          </div>
-
-          <div>
-            <span>
-              Puissance totale
-            </span>
-
-            <strong>
-              {formatPower(totalPower)}
-            </strong>
-          </div>
-        </article>
-
-        <article className="indicator-card indicator-critical">
-          <div className="indicator-icon">
-            <AlertTriangle
-              size={22}
+          <section className="sensors-grid">
+            <SensorCard
+              title="Température"
+              value={temperature.value}
+              unit="°C"
+              status={temperature.status ?? "offline"}
+              icon={Thermometer}
+              digits={1}
             />
-          </div>
 
-          <div>
-            <span>
-              Alertes critiques
-            </span>
-
-            <strong>
-              {criticalAlerts}
-            </strong>
-          </div>
-        </article>
-
-        <article className="indicator-card indicator-warning">
-          <div className="indicator-icon">
-            <AlertTriangle
-              size={22}
+            <SensorCard
+              title="Débit"
+              value={flow.value}
+              unit="L/min"
+              status={flow.status ?? "offline"}
+              icon={Droplets}
+              digits={2}
             />
-          </div>
 
-          <div>
-            <span>
-              Avertissements
-            </span>
+            <SensorCard
+              title="Niveau du réservoir"
+              value={tank.levelPercent}
+              unit="%"
+              status={tank.status ?? "offline"}
+              icon={Gauge}
+              digits={1}
+            />
 
-            <strong>
-              {warningAlerts}
-            </strong>
-          </div>
-        </article>
+            <SensorCard
+              title="Volume disponible"
+              value={tank.volumeLiters}
+              unit="L"
+              status={tank.status ?? "offline"}
+              icon={Droplets}
+              digits={1}
+            />
 
-        <article className="indicator-card">
-          <div className="indicator-icon">
-            <Gauge size={22} />
-          </div>
+            <SensorCard
+              title="Distance capteur"
+              value={tank.distanceCm}
+              unit="cm"
+              status={tank.status ?? "offline"}
+              icon={Gauge}
+              digits={1}
+            />
 
-          <div>
-            <span>
-              Niveau réservoir
-            </span>
+            <article className="last-update-card">
+              <span>Dernière mise à jour</span>
 
-            <strong>
-              {toNumber(
-                tank.levelPercent
-              ).toFixed(1)}{" "}
-              %
-            </strong>
-          </div>
-        </article>
-      </section>
+              <strong>
+                {formatDate(
+                  machine?.timestamp ??
+                    machine?.updatedAt ??
+                    machine?.updated_at
+                )}
+              </strong>
+            </article>
+          </section>
 
-      <section className="lines-grid">
-        <LineCard
-          title="Ligne 1"
-          data={lines.L1}
-        />
+          <section className="power-summary">
+            <div className="panel-header">
+              <div>
+                <span className="panel-eyebrow">
+                  Consommation
+                </span>
 
-        <LineCard
-          title="Ligne 2"
-          data={lines.L2}
-        />
+                <h2>Répartition de la puissance</h2>
+              </div>
 
-        <LineCard
-          title="Ligne 3"
-          data={lines.L3}
-        />
-      </section>
+              <strong className="power-summary-total">
+                Total : {formatPower(totalPower)}
+              </strong>
+            </div>
 
-      <section className="sensors-grid">
-        <SensorCard
-          title="Température"
-          value={temperature.value}
-          unit="°C"
-          status={
-            temperature.status ??
-            "offline"
-          }
-          icon={Thermometer}
-          digits={1}
-        />
+            <div className="power-summary-grid">
+              <article className="power-line power-line-1">
+                <span>Ligne 1</span>
+                <strong>{formatPower(line1Power)}</strong>
+              </article>
 
-        <SensorCard
-          title="Débit"
-          value={flow.value}
-          unit="L/min"
-          status={
-            flow.status ?? "offline"
-          }
-          icon={Droplets}
-          digits={2}
-        />
+              <article className="power-line power-line-2">
+                <span>Ligne 2</span>
+                <strong>{formatPower(line2Power)}</strong>
+              </article>
 
-        <SensorCard
-          title="Niveau du réservoir"
-          value={tank.levelPercent}
-          unit="%"
-          status={
-            tank.status ?? "offline"
-          }
-          icon={Gauge}
-          digits={1}
-        />
+              <article className="power-line power-line-3">
+                <span>Ligne 3</span>
+                <strong>{formatPower(line3Power)}</strong>
+              </article>
 
-        <SensorCard
-          title="Volume disponible"
-          value={tank.volumeLiters}
-          unit="L"
-          status={
-            tank.status ?? "offline"
-          }
-          icon={Droplets}
-          digits={1}
-        />
-
-        <SensorCard
-          title="Distance capteur"
-          value={tank.distanceCm}
-          unit="cm"
-          status={
-            tank.status ?? "offline"
-          }
-          icon={Gauge}
-          digits={1}
-        />
-
-        <article className="last-update-card">
-          <span className="last-update-label">
-            Dernière mise à jour
-          </span>
-
-          <strong>
-            {formatDate(
-              machine?.timestamp ??
-                machine?.updatedAt ??
-                machine?.updated_at
-            )}
-          </strong>
-        </article>
-      </section>
-
-      <section className="power-summary">
-        <div className="panel-header">
-          <div>
-            <span className="panel-eyebrow">
-              Consommation
-            </span>
-
-            <h2>
-              Répartition de la puissance
-            </h2>
-          </div>
-
-          <strong className="power-summary-total">
-            Total :{" "}
-            {formatPower(totalPower)}
-          </strong>
+              <article className="power-line power-line-total">
+                <span>Total</span>
+                <strong>{formatPower(totalPower)}</strong>
+              </article>
+            </div>
+          </section>
         </div>
 
-        <div className="power-summary-grid">
-          <div>
-            <span>Ligne 1</span>
+        <aside className="analysis-panel">
+          <div className="analysis-panel-header">
+            <div>
+              <span>Supervision</span>
+              <h2>Analyse & Graphiques</h2>
+            </div>
 
-            <strong>
-              {formatPower(
-                line1Power
-              )}
-            </strong>
+            <BarChart3 size={22} />
           </div>
 
-          <div>
-            <span>Ligne 2</span>
+          <section className="analysis-section">
+            <div className="analysis-date-selector">
+              <CalendarDays size={17} />
 
-            <strong>
-              {formatPower(
-                line2Power
-              )}
-            </strong>
-          </div>
+              <select
+                value={period}
+                onChange={(event) =>
+                  setPeriod(event.target.value)
+                }
+              >
+                <option value="realtime">
+                  Aujourd’hui
+                </option>
 
-          <div>
-            <span>Ligne 3</span>
+                <option value="24h">
+                  Dernières 24 heures
+                </option>
 
-            <strong>
-              {formatPower(
-                line3Power
-              )}
-            </strong>
-          </div>
-        </div>
-      </section>
+                <option value="7d">
+                  7 derniers jours
+                </option>
 
-      <PowerChart
-        history={history}
-        period={period}
-        onPeriodChange={setPeriod}
-      />
+                <option value="30d">
+                  30 derniers jours
+                </option>
+              </select>
+            </div>
+
+            <div className="period-buttons">
+              {periods.map((periodOption) => (
+                <button
+                  key={periodOption.id}
+                  type="button"
+                  className={
+                    period === periodOption.id
+                      ? "active"
+                      : ""
+                  }
+                  onClick={() =>
+                    setPeriod(periodOption.id)
+                  }
+                >
+                  {periodOption.label}
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <section className="analysis-section">
+            <h3>Sélection des lignes</h3>
+
+            <div className="analysis-lines">
+              {["L1", "L2", "L3"].map((lineId) => (
+                <label
+                  key={lineId}
+                  className={`analysis-checkbox analysis-checkbox-${lineId.toLowerCase()}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedLines.includes(lineId)}
+                    onChange={() => toggleLine(lineId)}
+                  />
+
+                  <span>
+                    Ligne {lineId.replace("L", "")}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </section>
+
+          <section className="analysis-section">
+            <h3>Paramètres</h3>
+
+            <div className="metrics-selector">
+              {availableMetrics.map((metric) => (
+                <label
+                  key={metric.id}
+                  className="analysis-checkbox"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedMetrics.includes(
+                      metric.id
+                    )}
+                    onChange={() =>
+                      toggleMetric(metric.id)
+                    }
+                  />
+
+                  <span>
+                    {metric.label}
+                    {metric.unit
+                      ? ` (${metric.unit})`
+                      : ""}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </section>
+
+          <section className="analysis-section">
+            <h3>Type de graphique</h3>
+
+            <div className="chart-type-buttons">
+              {chartTypes.map((type) => (
+                <button
+                  key={type.id}
+                  type="button"
+                  className={
+                    chartType === type.id
+                      ? "active"
+                      : ""
+                  }
+                  onClick={() => setChartType(type.id)}
+                >
+                  {type.label}
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <section className="analysis-chart-container">
+            <PowerChart
+              history={history}
+              period={period}
+              onPeriodChange={setPeriod}
+              selectedLines={selectedLines}
+              selectedMetrics={selectedMetrics}
+              chartType={chartType}
+            />
+          </section>
+
+          <section className="analysis-line-results">
+            <article className="analysis-result result-line-1">
+              <span>Ligne 1</span>
+              <strong>{formatPower(line1Power)}</strong>
+            </article>
+
+            <article className="analysis-result result-line-2">
+              <span>Ligne 2</span>
+              <strong>{formatPower(line2Power)}</strong>
+            </article>
+
+            <article className="analysis-result result-line-3">
+              <span>Ligne 3</span>
+              <strong>{formatPower(line3Power)}</strong>
+            </article>
+          </section>
+
+          <section className="analysis-export">
+            <h3>Exporter les données</h3>
+
+            <div className="export-buttons">
+              <button type="button">
+                <Download size={16} />
+                PDF
+              </button>
+
+              <button type="button">
+                <Sheet size={16} />
+                Excel
+              </button>
+
+              <button type="button">
+                <Download size={16} />
+                CSV
+              </button>
+
+              <button type="button">
+                <Image size={16} />
+                Image
+              </button>
+            </div>
+          </section>
+        </aside>
+      </div>
 
       <AlertPanel
-        alerts={
-          Array.isArray(alerts)
-            ? alerts
-            : []
-        }
-        onAcknowledged={
-          handleAlertAcknowledged
-        }
+        alerts={safeAlerts}
+        onAcknowledged={handleAlertAcknowledged}
       />
     </main>
   );
