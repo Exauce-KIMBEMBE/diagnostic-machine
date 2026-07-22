@@ -22,27 +22,39 @@ import {
 const app = express();
 const server = http.createServer(app);
 
-/*
- * Durée maximale sans données avant de considérer
- * une machine comme hors ligne.
- */
-const MACHINE_OFFLINE_DELAY = 30000;
+const PORT = Number(
+  process.env.PORT || 3001
+);
 
 /*
- * Fréquence de vérification des machines.
+ * ===============================
+ * PRÉSENCE DES MACHINES
+ * ===============================
  */
-const MACHINE_CHECK_INTERVAL = 5000;
+
+/*
+ * Une machine est considérée hors ligne
+ * après 30 secondes sans nouvelle mesure.
+ */
+const MACHINE_OFFLINE_DELAY = 30_000;
+
+/*
+ * Le serveur vérifie l’état des machines
+ * toutes les 5 secondes.
+ */
+const MACHINE_CHECK_INTERVAL = 5_000;
 
 /*
  * Stockage temporaire en mémoire.
  *
- * Clé   : identifiant de la machine
- * Valeur :
- * {
- *   online: boolean,
- *   lastSeen: number,
- *   lastData: object | null
- * }
+ * Map<
+ *   machineId,
+ *   {
+ *     online: boolean,
+ *     lastSeen: number,
+ *     lastData: object | null
+ *   }
+ * >
  */
 const connectedMachines = new Map();
 
@@ -60,10 +72,11 @@ const allowedOrigins = [
 ];
 
 const corsOptions = {
-  origin: (origin, callback) => {
+  origin(origin, callback) {
     /*
-     * Les appareils comme l’ESP32 et Postman
-     * peuvent envoyer une requête sans Origin.
+     * Les requêtes provenant de l’ESP32,
+     * de Postman ou d’un serveur peuvent
+     * ne pas contenir d’en-tête Origin.
      */
     if (
       !origin ||
@@ -110,11 +123,17 @@ app.set("io", io);
 
 /*
  * ===============================
- * GESTION DE PRÉSENCE DES MACHINES
+ * OUTILS DE PRÉSENCE MACHINE
  * ===============================
  */
 
-function normalizeMachineId(machineId) {
+/*
+ * Vérifie et normalise l’identifiant
+ * d’une machine.
+ */
+function normalizeMachineId(
+  machineId
+) {
   const normalizedId =
     Number(machineId);
 
@@ -128,11 +147,38 @@ function normalizeMachineId(machineId) {
   return normalizedId;
 }
 
-function getMachineRoom(machineId) {
+/*
+ * Retourne le nom de la salle Socket.IO
+ * d’une machine.
+ */
+function getMachineRoom(
+  machineId
+) {
   return `machine:${machineId}`;
 }
 
-function getMachinePresence(machineId) {
+/*
+ * Récupère l’identifiant machine
+ * depuis plusieurs formats possibles.
+ */
+function extractMachineId(
+  data = {}
+) {
+  return normalizeMachineId(
+    data.machineId ??
+      data.machine_id ??
+      data.idMachine ??
+      data.machine?.id
+  );
+}
+
+/*
+ * Retourne l’état actuel d’une machine
+ * sans consulter la base de données.
+ */
+function getMachinePresence(
+  machineId
+) {
   const normalizedId =
     normalizeMachineId(machineId);
 
@@ -159,24 +205,29 @@ function getMachinePresence(machineId) {
     };
   }
 
-  const elapsed =
-    Date.now() -
-    machine.lastSeen;
-
   const online =
     machine.online === true &&
-    elapsed <
+    Date.now() -
+      machine.lastSeen <
       MACHINE_OFFLINE_DELAY;
 
   return {
     machineId: normalizedId,
     online,
-    lastSeen: machine.lastSeen,
+    lastSeen:
+      machine.lastSeen,
     lastData:
-      machine.lastData ?? null,
+      machine.lastData ??
+      null,
   };
 }
 
+/*
+ * Déclare une machine en ligne.
+ *
+ * Cette fonction est appelée
+ * lorsqu’une nouvelle mesure est reçue.
+ */
 function markMachineOnline(
   machineId,
   machineData = null
@@ -198,14 +249,23 @@ function markMachineOnline(
       normalizedId
     );
 
+  /*
+   * Une machine peut être encore marquée
+   * online dans la Map alors que son délai
+   * est déjà dépassé.
+   */
   const wasOnline =
-    previousState?.online === true;
+    previousState?.online === true &&
+    Date.now() -
+      previousState.lastSeen <
+      MACHINE_OFFLINE_DELAY;
 
   const now = Date.now();
 
   const nextState = {
     online: true,
     lastSeen: now,
+
     lastData:
       machineData ??
       previousState?.lastData ??
@@ -218,8 +278,8 @@ function markMachineOnline(
   );
 
   /*
-   * On envoie machine:online seulement
-   * lors du passage hors ligne → en ligne.
+   * machine:online est envoyé uniquement
+   * lors du passage hors ligne vers en ligne.
    */
   if (!wasOnline) {
     io.to(
@@ -234,6 +294,13 @@ function markMachineOnline(
 
         online: true,
 
+        status: "online",
+
+        lastSeen:
+          new Date(
+            now
+          ).toISOString(),
+
         timestamp:
           new Date(
             now
@@ -247,9 +314,8 @@ function markMachineOnline(
   }
 
   /*
-   * Lorsqu’il y a de nouvelles mesures,
-   * elles sont immédiatement envoyées
-   * au Dashboard.
+   * Les nouvelles données sont immédiatement
+   * envoyées au Dashboard.
    */
   if (
     machineData &&
@@ -284,6 +350,9 @@ function markMachineOnline(
   return nextState;
 }
 
+/*
+ * Déclare une machine hors ligne.
+ */
 function markMachineOffline(
   machineId,
   reason = "timeout"
@@ -329,7 +398,16 @@ function markMachineOffline(
 
       online: false,
 
+      status: "offline",
+
       reason,
+
+      lastSeen:
+        previousState.lastSeen
+          ? new Date(
+              previousState.lastSeen
+            ).toISOString()
+          : null,
 
       timestamp:
         new Date(
@@ -344,9 +422,9 @@ function markMachineOffline(
 }
 
 /*
- * Ces fonctions seront utilisées dans
- * machineRoutes ou dans le contrôleur
- * qui reçoit les mesures de l’ESP32.
+ * Les routes et les contrôleurs
+ * peuvent récupérer ces fonctions
+ * avec req.app.get(...).
  */
 app.set(
   "markMachineOnline",
@@ -401,6 +479,10 @@ const machinePresenceTimer =
     }
   }, MACHINE_CHECK_INTERVAL);
 
+/*
+ * Empêche le timer de garder
+ * le processus Node.js ouvert tout seul.
+ */
 machinePresenceTimer.unref();
 
 /*
@@ -409,7 +491,9 @@ machinePresenceTimer.unref();
  * ===============================
  */
 
-app.use(cors(corsOptions));
+app.use(
+  cors(corsOptions)
+);
 
 app.use(
   express.json({
@@ -425,23 +509,75 @@ app.use(
 
 /*
  * ===============================
+ * DÉTECTION DES MESURES ESP32
+ * ===============================
+ */
+
+/*
+ * Ce middleware intercepte :
+ *
+ * POST /api/measurements
+ *
+ * Lorsqu’une mesure est reçue,
+ * la machine est immédiatement
+ * déclarée en ligne.
+ *
+ * Cela évite de consulter MySQL
+ * pour connaître son statut.
+ */
+app.use(
+  "/api/measurements",
+  (
+    req,
+    res,
+    next
+  ) => {
+    if (
+      req.method !== "POST"
+    ) {
+      return next();
+    }
+
+    const machineId =
+      extractMachineId(
+        req.body
+      );
+
+    if (machineId) {
+      markMachineOnline(
+        machineId,
+        req.body
+      );
+    }
+
+    return next();
+  }
+);
+
+/*
+ * ===============================
  * ROUTE PRINCIPALE
  * ===============================
  */
 
-app.get("/", (req, res) => {
-  res.json({
-    success: true,
-    message:
-      "Serveur Diagnostic Machine actif",
-    timestamp:
-      new Date().toISOString(),
-  });
-});
+app.get(
+  "/",
+  (req, res) => {
+    res.json({
+      success: true,
+
+      message:
+        "Serveur Diagnostic Machine actif",
+
+      timestamp:
+        new Date().toISOString(),
+    });
+  }
+);
 
 /*
  * ===============================
- * ROUTE DE TEST
+ * ROUTE DE TEST DU SERVEUR
  * ===============================
  */
 
@@ -450,20 +586,13 @@ app.get(
   (req, res) => {
     const onlineMachines =
       Array.from(
-        connectedMachines.entries()
-      )
-        .filter(
-          ([
-            machineId,
-          ]) =>
-            getMachinePresence(
-              machineId
-            ).online
-        )
-        .map(
-          ([machineId]) =>
+        connectedMachines.keys()
+      ).filter(
+        (machineId) =>
+          getMachinePresence(
             machineId
-        );
+          ).online
+      );
 
     res.json({
       success: true,
@@ -487,20 +616,35 @@ app.get(
 );
 
 /*
- * Route légère pour connaître le statut
- * d’une machine sans interroger MySQL.
+ * ===============================
+ * STATUT D’UNE MACHINE
+ * ===============================
+ */
+
+/*
+ * Cette route ne consulte pas MySQL.
+ *
+ * Exemple :
+ *
+ * GET /api/machines/1/status
  */
 app.get(
   "/api/machines/:machineId/status",
-  (req, res) => {
+  (
+    req,
+    res
+  ) => {
     const machineId =
       normalizeMachineId(
         req.params.machineId
       );
 
     if (!machineId) {
-      return res.status(400).json({
+      return res.status(
+        400
+      ).json({
         success: false,
+
         message:
           "Identifiant machine invalide",
       });
@@ -540,26 +684,60 @@ app.get(
  * ===============================
  */
 
+/*
+ * Machine :
+ *
+ * GET  /api/state
+ * POST /api/measurements
+ * GET  /api/history
+ */
 app.use(
   "/api",
   machineRoutes
 );
 
+/*
+ * Alertes :
+ *
+ * GET   /api/alerts
+ * GET   /api/alerts/active
+ * PATCH /api/alerts/:id/acknowledge
+ */
 app.use(
   "/api/alerts",
   alertRoutes
 );
 
+/*
+ * Seuils :
+ *
+ * GET    /api/thresholds
+ * POST   /api/thresholds
+ * DELETE /api/thresholds/:id
+ */
 app.use(
   "/api/thresholds",
   thresholdRoutes
 );
 
+/*
+ * Configuration machine :
+ *
+ * GET /api/configuration
+ * GET /api/configuration/:machineId
+ * PUT /api/configuration/:machineId
+ */
 app.use(
   "/api/configuration",
   configurationRoutes
 );
 
+/*
+ * Firmware OTA :
+ *
+ * GET /api/firmware
+ * GET /api/firmware/download
+ */
 app.use(
   "/api/firmware",
   firmwareRoutes
@@ -571,15 +749,24 @@ app.use(
  * ===============================
  */
 
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    message:
-      "Route API introuvable",
-    method: req.method,
-    path: req.originalUrl,
-  });
-});
+app.use(
+  (req, res) => {
+    res.status(
+      404
+    ).json({
+      success: false,
+
+      message:
+        "Route API introuvable",
+
+      method:
+        req.method,
+
+      path:
+        req.originalUrl,
+    });
+  }
+);
 
 /*
  * ===============================
@@ -604,17 +791,24 @@ app.use(
         "Origine non autorisée par CORS"
       )
     ) {
-      return res.status(403).json({
+      return res.status(
+        403
+      ).json({
         success: false,
+
         message:
           error.message,
       });
     }
 
-    return res.status(500).json({
+    return res.status(
+      500
+    ).json({
       success: false,
+
       message:
         "Erreur interne du serveur",
+
       details:
         error.message,
     });
@@ -623,7 +817,7 @@ app.use(
 
 /*
  * ===============================
- * SOCKET.IO
+ * ÉVÉNEMENTS SOCKET.IO
  * ===============================
  */
 
@@ -636,18 +830,20 @@ io.on(
     );
 
     /*
-     * Cela confirme seulement que le navigateur
-     * est connecté au serveur.
+     * Cet événement confirme seulement
+     * la connexion du navigateur au serveur.
      *
-     * Cela ne signifie pas qu’une machine
-     * est en ligne.
+     * Il ne signifie pas que l’ESP32
+     * est connecté.
      */
     socket.emit(
       "server:connected",
       {
         success: true,
+
         socketId:
           socket.id,
+
         timestamp:
           new Date().toISOString(),
       }
@@ -655,13 +851,15 @@ io.on(
 
     /*
      * Le Dashboard rejoint la salle
-     * correspondant à la machine sélectionnée.
+     * de la machine sélectionnée.
      */
     socket.on(
       "machine:join",
-      ({
-        machineId,
-      } = {}) => {
+      (
+        {
+          machineId,
+        } = {}
+      ) => {
         const normalizedId =
           normalizeMachineId(
             machineId
@@ -693,7 +891,7 @@ io.on(
 
         /*
          * Le Dashboard reçoit immédiatement
-         * le véritable statut en mémoire.
+         * le véritable statut de la machine.
          */
         socket.emit(
           presence.online
@@ -724,9 +922,11 @@ io.on(
         );
 
         /*
-         * Si la machine est en ligne et que
-         * le serveur possède déjà ses dernières
-         * données, il les envoie sans lire MySQL.
+         * Si la machine est en ligne,
+         * les dernières données présentes
+         * en mémoire sont envoyées.
+         *
+         * Aucune lecture MySQL n’est nécessaire.
          */
         if (
           presence.online &&
@@ -750,11 +950,17 @@ io.on(
       }
     );
 
+    /*
+     * Le Dashboard quitte la salle
+     * de la machine précédente.
+     */
     socket.on(
       "machine:leave",
-      ({
-        machineId,
-      } = {}) => {
+      (
+        {
+          machineId,
+        } = {}
+      ) => {
         const normalizedId =
           normalizeMachineId(
             machineId
@@ -772,17 +978,31 @@ io.on(
       }
     );
 
+    /*
+     * Le Dashboard demande le statut
+     * actuel d’une machine.
+     */
     socket.on(
       "machine:status",
-      ({
-        machineId,
-      } = {}) => {
+      (
+        {
+          machineId,
+        } = {}
+      ) => {
         const normalizedId =
           normalizeMachineId(
             machineId
           );
 
         if (!normalizedId) {
+          socket.emit(
+            "machine:error",
+            {
+              message:
+                "Identifiant machine invalide",
+            }
+          );
+
           return;
         }
 
@@ -831,18 +1051,15 @@ io.on(
         );
 
         /*
-         * On ne met pas la machine hors ligne ici.
+         * On ne déclare pas la machine
+         * hors ligne ici.
          *
-         * Ce socket peut simplement être celui
-         * du navigateur.
+         * Ce socket appartient normalement
+         * au navigateur et non à l’ESP32.
          */
       }
     );
   }
-);
-
-const PORT = Number(
-  process.env.PORT || 3001
 );
 
 /*
