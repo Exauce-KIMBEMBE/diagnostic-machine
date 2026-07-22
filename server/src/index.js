@@ -9,6 +9,7 @@ import machineRoutes from "./routes/machineRoutes.js";
 import alertRoutes from "./routes/alertRoutes.js";
 import thresholdRoutes from "./routes/thresholdRoutes.js";
 import configurationRoutes from "./routes/configurationRoutes.js";
+import firmwareRoutes from "./routes/firmwareRoutes.js";
 
 import { testDatabaseConnection } from "./config/database.js";
 import { initializeDatabase } from "./config/initDatabase.js";
@@ -168,6 +169,18 @@ app.use("/api/thresholds", thresholdRoutes);
 app.use(
   "/api/configuration",
   configurationRoutes
+);
+
+
+/*
+ * Firmware OTA :
+ *
+ * GET /api/firmware
+ * GET /api/firmware/download
+ */
+app.use(
+  "/api/firmware",
+  firmwareRoutes
 );
 
 /*
