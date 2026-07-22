@@ -6,7 +6,10 @@ import {
   Clock3,
 } from "lucide-react";
 
-import { useMemo, useState } from "react";
+import {
+  useMemo,
+  useState,
+} from "react";
 
 import {
   acknowledgeAlert,
@@ -18,49 +21,130 @@ const LEVEL_LABELS = {
   normal: "Normal",
 };
 
+const PARAMETER_LABELS = {
+  voltage: "Tension",
+  current: "Courant",
+  power: "Puissance active",
+  apparentPower:
+    "Puissance apparente",
+  apparent_power:
+    "Puissance apparente",
+  reactivePower:
+    "Puissance réactive",
+  reactive_power:
+    "Puissance réactive",
+  energy: "Énergie",
+  frequency: "Fréquence",
+  powerFactor:
+    "Facteur de puissance",
+  power_factor:
+    "Facteur de puissance",
+  temperature:
+    "Température",
+  flow: "Débit",
+  levelPercent:
+    "Niveau du réservoir",
+  level_percent:
+    "Niveau du réservoir",
+  levelCm:
+    "Hauteur de liquide",
+  level_cm:
+    "Hauteur de liquide",
+  distanceCm:
+    "Distance du capteur",
+  distance_cm:
+    "Distance du capteur",
+  volumeLiters:
+    "Volume disponible",
+  volume_liters:
+    "Volume disponible",
+};
+
+const SOURCE_LABELS = {
+  L1: "Ligne 1",
+  L2: "Ligne 2",
+  L3: "Ligne 3",
+  temperature:
+    "Température",
+  flow: "Débit",
+  tank: "Réservoir",
+};
+
 function formatDate(value) {
   if (!value) {
     return "--";
   }
 
-  const date = new Date(value);
+  const date =
+    new Date(value);
 
-  if (Number.isNaN(date.getTime())) {
+  if (
+    Number.isNaN(
+      date.getTime()
+    )
+  ) {
     return "--";
   }
 
-  return date.toLocaleString("fr-FR");
+  return date.toLocaleString(
+    "fr-FR",
+    {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    }
+  );
 }
 
 function getAlertId(alert) {
   return (
     alert?.id ??
     alert?.databaseId ??
+    alert?.database_id ??
     alert?.alertId ??
+    alert?.alert_id ??
     null
   );
 }
 
 function getAlertLevel(alert) {
-  const level =
+  const rawLevel =
     String(
       alert?.level ??
       alert?.severity ??
+      alert?.status ??
       "warning"
     ).toLowerCase();
 
   if (
-    level === "critical" ||
-    level === "warning"
+    rawLevel ===
+      "critical" ||
+    rawLevel ===
+      "critique" ||
+    rawLevel ===
+      "danger"
   ) {
-    return level;
+    return "critical";
+  }
+
+  if (
+    rawLevel ===
+      "normal" ||
+    rawLevel === "ok"
+  ) {
+    return "normal";
   }
 
   return "warning";
 }
 
 function getAlertIcon(level) {
-  if (level === "critical") {
+  if (
+    level === "critical"
+  ) {
     return AlertCircle;
   }
 
@@ -71,7 +155,7 @@ function getAlertValue(
   alert,
   camelCaseKey,
   snakeCaseKey,
-  fallback = "--"
+  fallback = null
 ) {
   return (
     alert?.[camelCaseKey] ??
@@ -92,148 +176,329 @@ function formatMeasurement(
     return "--";
   }
 
-  return `${value}${unit ? ` ${unit}` : ""}`;
+  const numericValue =
+    Number(value);
+
+  const formattedValue =
+    Number.isFinite(
+      numericValue
+    )
+      ? numericValue.toLocaleString(
+          "fr-FR",
+          {
+            maximumFractionDigits:
+              3,
+          }
+        )
+      : String(value);
+
+  return `${formattedValue}${
+    unit
+      ? ` ${unit}`
+      : ""
+  }`;
+}
+
+function getSourceLabel(source) {
+  return (
+    SOURCE_LABELS[
+      source
+    ] ??
+    source ??
+    "Source inconnue"
+  );
+}
+
+function getParameterLabel(
+  parameterName
+) {
+  if (!parameterName) {
+    return "";
+  }
+
+  return (
+    PARAMETER_LABELS[
+      parameterName
+    ] ??
+    parameterName
+  );
+}
+
+function extractErrorMessage(
+  error
+) {
+  return (
+    error?.response?.data
+      ?.message ??
+    error?.response?.data
+      ?.error ??
+    error?.message ??
+    "Impossible d’acquitter l’alerte."
+  );
 }
 
 export default function AlertPanel({
   alerts = [],
   onAcknowledged,
 }) {
-  const [filter, setFilter] =
-    useState("all");
+  const [
+    filter,
+    setFilter,
+  ] = useState("all");
 
-  const [acknowledgingId, setAcknowledgingId] =
-    useState(null);
+  const [
+    acknowledgingId,
+    setAcknowledgingId,
+  ] = useState(null);
 
-  const [message, setMessage] =
-    useState("");
+  const [
+    message,
+    setMessage,
+  ] = useState("");
 
-  const [messageType, setMessageType] =
-    useState("");
+  const [
+    messageType,
+    setMessageType,
+  ] = useState("");
 
-  const normalizedAlerts = useMemo(() => {
-    if (!Array.isArray(alerts)) {
-      return [];
-    }
+  const normalizedAlerts =
+    useMemo(() => {
+      if (
+        !Array.isArray(
+          alerts
+        )
+      ) {
+        return [];
+      }
 
-    return alerts
-      .map((alert) => {
-        const level =
-          getAlertLevel(alert);
+      return alerts
+        .map((alert) => {
+          const level =
+            getAlertLevel(
+              alert
+            );
 
-        const createdAt =
-          getAlertValue(
-            alert,
-            "createdAt",
-            "created_at",
-            alert?.timestamp
-          );
+          const createdAt =
+            getAlertValue(
+              alert,
+              "createdAt",
+              "created_at",
+              alert?.timestamp ??
+                alert?.date ??
+                null
+            );
 
-        return {
-          ...alert,
-          id: getAlertId(alert),
-          level,
-          createdAt,
-
-          source:
+          const source =
             alert?.source ??
-            "Source inconnue",
+            alert?.line ??
+            alert?.sensor ??
+            "Source inconnue";
 
-          parameterName:
+          const parameterName =
             getAlertValue(
               alert,
               "parameterName",
               "parameter_name",
-              ""
-            ),
+              alert?.parameter ??
+                ""
+            );
 
-          measuredValue:
+          const measuredValue =
             getAlertValue(
               alert,
               "measuredValue",
               "measured_value",
-              alert?.value
-            ),
+              alert?.value ??
+                null
+            );
 
-          thresholdValue:
+          const thresholdValue =
             getAlertValue(
               alert,
               "thresholdValue",
               "threshold_value",
-              alert?.limit
-            ),
+              alert?.limit ??
+                alert?.threshold ??
+                null
+            );
 
-          unit:
-            alert?.unit ?? "",
+          return {
+            ...alert,
 
-          message:
-            alert?.message ??
-            "Valeur anormale détectée.",
-        };
-      })
-      .sort((first, second) => {
-        const firstTime =
-          new Date(
-            first.createdAt
-          ).getTime();
+            id:
+              getAlertId(
+                alert
+              ),
 
-        const secondTime =
-          new Date(
-            second.createdAt
-          ).getTime();
+            level,
 
-        if (
-          Number.isNaN(firstTime) ||
-          Number.isNaN(secondTime)
-        ) {
-          return 0;
-        }
+            createdAt,
 
-        return secondTime - firstTime;
-      });
-  }, [alerts]);
+            source,
 
-  const filteredAlerts = useMemo(() => {
-    if (filter === "all") {
-      return normalizedAlerts;
-    }
+            sourceLabel:
+              getSourceLabel(
+                source
+              ),
 
-    return normalizedAlerts.filter(
-      (alert) =>
-        alert.level === filter
-    );
-  }, [normalizedAlerts, filter]);
+            parameterName,
+
+            parameterLabel:
+              getParameterLabel(
+                parameterName
+              ),
+
+            measuredValue,
+
+            thresholdValue,
+
+            unit:
+              alert?.unit ??
+              "",
+
+            message:
+              alert?.message ??
+              alert?.description ??
+              "Valeur anormale détectée.",
+          };
+        })
+        .filter(
+          (alert) =>
+            alert.level !==
+            "normal"
+        )
+        .sort(
+          (
+            first,
+            second
+          ) => {
+            const firstTime =
+              new Date(
+                first.createdAt
+              ).getTime();
+
+            const secondTime =
+              new Date(
+                second.createdAt
+              ).getTime();
+
+            if (
+              Number.isNaN(
+                firstTime
+              ) &&
+              Number.isNaN(
+                secondTime
+              )
+            ) {
+              return 0;
+            }
+
+            if (
+              Number.isNaN(
+                firstTime
+              )
+            ) {
+              return 1;
+            }
+
+            if (
+              Number.isNaN(
+                secondTime
+              )
+            ) {
+              return -1;
+            }
+
+            return (
+              secondTime -
+              firstTime
+            );
+          }
+        );
+    }, [alerts]);
+
+  const filteredAlerts =
+    useMemo(() => {
+      if (
+        filter === "all"
+      ) {
+        return normalizedAlerts;
+      }
+
+      return normalizedAlerts.filter(
+        (alert) =>
+          alert.level ===
+          filter
+      );
+    }, [
+      normalizedAlerts,
+      filter,
+    ]);
 
   const criticalCount =
-    normalizedAlerts.filter(
-      (alert) =>
-        alert.level === "critical"
-    ).length;
+    useMemo(
+      () =>
+        normalizedAlerts.filter(
+          (alert) =>
+            alert.level ===
+            "critical"
+        ).length,
+      [normalizedAlerts]
+    );
 
   const warningCount =
-    normalizedAlerts.filter(
-      (alert) =>
-        alert.level === "warning"
-    ).length;
+    useMemo(
+      () =>
+        normalizedAlerts.filter(
+          (alert) =>
+            alert.level ===
+            "warning"
+        ).length,
+      [normalizedAlerts]
+    );
 
-  function showMessage(type, text) {
+  function showMessage(
+    type,
+    text
+  ) {
     setMessageType(type);
     setMessage(text);
   }
 
-  async function handleAcknowledge(alertId) {
-    if (!alertId) {
+  function clearMessage() {
+    setMessage("");
+    setMessageType("");
+  }
+
+  async function handleAcknowledge(
+    alertId
+  ) {
+    if (
+      alertId === null ||
+      alertId === undefined
+    ) {
+      showMessage(
+        "error",
+        "Identifiant de l’alerte introuvable."
+      );
+
       return;
     }
 
     try {
-      setAcknowledgingId(alertId);
-      setMessage("");
-      setMessageType("");
+      setAcknowledgingId(
+        alertId
+      );
 
-      await acknowledgeAlert(alertId);
+      clearMessage();
 
-      onAcknowledged?.(alertId);
+      await acknowledgeAlert(
+        alertId
+      );
+
+      onAcknowledged?.(
+        alertId
+      );
 
       showMessage(
         "success",
@@ -247,12 +512,14 @@ export default function AlertPanel({
 
       showMessage(
         "error",
-        error.response?.data?.message ||
-          error.message ||
-          "Impossible d’acquitter l’alerte."
+        extractErrorMessage(
+          error
+        )
       );
     } finally {
-      setAcknowledgingId(null);
+      setAcknowledgingId(
+        null
+      );
     }
   }
 
@@ -264,16 +531,21 @@ export default function AlertPanel({
             Surveillance
           </span>
 
-          <h2>Alertes actives</h2>
+          <h2>
+            Alertes actives
+          </h2>
 
           <p className="alert-panel-description">
             Consulte et acquitte les
-            anomalies actuellement détectées.
+            anomalies actuellement
+            détectées.
           </p>
         </div>
 
         <span className="alert-counter">
-          {normalizedAlerts.length}
+          {
+            normalizedAlerts.length
+          }
         </span>
       </div>
 
@@ -290,53 +562,77 @@ export default function AlertPanel({
           }
         >
           Toutes
+
           <span>
-            {normalizedAlerts.length}
+            {
+              normalizedAlerts.length
+            }
           </span>
         </button>
 
         <button
           className={
-            filter === "critical"
+            filter ===
+            "critical"
               ? "alert-filter active"
               : "alert-filter"
           }
           type="button"
           onClick={() =>
-            setFilter("critical")
+            setFilter(
+              "critical"
+            )
           }
         >
           Critiques
-          <span>{criticalCount}</span>
+
+          <span>
+            {criticalCount}
+          </span>
         </button>
 
         <button
           className={
-            filter === "warning"
+            filter ===
+            "warning"
               ? "alert-filter active"
               : "alert-filter"
           }
           type="button"
           onClick={() =>
-            setFilter("warning")
+            setFilter(
+              "warning"
+            )
           }
         >
           Attention
-          <span>{warningCount}</span>
+
+          <span>
+            {warningCount}
+          </span>
         </button>
       </div>
 
       {message ? (
         <p
           className={`alert-action-message alert-action-${messageType}`}
+          role={
+            messageType ===
+            "error"
+              ? "alert"
+              : "status"
+          }
         >
           {message}
         </p>
       ) : null}
 
-      {normalizedAlerts.length === 0 ? (
+      {normalizedAlerts.length ===
+      0 ? (
         <div className="alert-empty-state">
-          <CheckCircle2 size={40} />
+          <CheckCircle2
+            size={40}
+          />
 
           <strong>
             Aucune alerte active
@@ -347,27 +643,37 @@ export default function AlertPanel({
             les seuils définis.
           </span>
         </div>
-      ) : filteredAlerts.length === 0 ? (
+      ) : filteredAlerts.length ===
+        0 ? (
         <div className="alert-empty-state">
-          <CheckCircle2 size={36} />
+          <CheckCircle2
+            size={36}
+          />
 
           <strong>
-            Aucune alerte dans cette catégorie
+            Aucune alerte dans cette
+            catégorie
           </strong>
         </div>
       ) : (
         <div className="alert-list">
           {filteredAlerts.map(
-            (alert, index) => {
+            (
+              alert,
+              index
+            ) => {
               const AlertIcon =
                 getAlertIcon(
                   alert.level
                 );
 
               const isAcknowledging =
-                Number(
+                String(
                   acknowledgingId
-                ) === Number(alert.id);
+                ) ===
+                String(
+                  alert.id
+                );
 
               return (
                 <article
@@ -378,20 +684,24 @@ export default function AlertPanel({
                   }
                 >
                   <div className="alert-item-icon">
-                    <AlertIcon size={23} />
+                    <AlertIcon
+                      size={23}
+                    />
                   </div>
 
                   <div className="alert-item-content">
                     <div className="alert-item-title">
                       <div>
                         <strong>
-                          {alert.source}
+                          {
+                            alert.sourceLabel
+                          }
                         </strong>
 
-                        {alert.parameterName ? (
+                        {alert.parameterLabel ? (
                           <span className="alert-parameter">
                             {
-                              alert.parameterName
+                              alert.parameterLabel
                             }
                           </span>
                         ) : null}
@@ -408,11 +718,16 @@ export default function AlertPanel({
                       </span>
                     </div>
 
-                    <p>{alert.message}</p>
+                    <p>
+                      {
+                        alert.message
+                      }
+                    </p>
 
                     <div className="alert-item-details">
                       <span>
                         Valeur mesurée :
+
                         <strong>
                           {" "}
                           {formatMeasurement(
@@ -424,6 +739,7 @@ export default function AlertPanel({
 
                       <span>
                         Seuil :
+
                         <strong>
                           {" "}
                           {formatMeasurement(
@@ -434,7 +750,10 @@ export default function AlertPanel({
                       </span>
 
                       <span>
-                        <Clock3 size={14} />
+                        <Clock3
+                          size={14}
+                        />
+
                         {formatDate(
                           alert.createdAt
                         )}
@@ -442,7 +761,10 @@ export default function AlertPanel({
                     </div>
                   </div>
 
-                  {alert.id ? (
+                  {alert.id !==
+                    null &&
+                  alert.id !==
+                    undefined ? (
                     <button
                       className="acknowledge-button"
                       type="button"
