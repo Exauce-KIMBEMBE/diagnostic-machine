@@ -1,10 +1,10 @@
 :root {
-
   --bg: #0f172a;
   --surface: #1e293b;
   --surface-light: #334155;
 
   --text: #f8fafc;
+  --text-primary: #f8fafc;
   --text-secondary: #cbd5e1;
 
   --success: #22c55e;
@@ -15,59 +15,100 @@
   --radius: 16px;
 
   --shadow:
-    0 8px 24px rgba(0,0,0,.25);
-
+    0 8px 24px rgba(0, 0, 0, 0.25);
 }
 
-*{
-
-  margin:0;
-  padding:0;
-  box-sizing:border-box;
-
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
-body{
+html,
+body,
+#root {
+  width: 100%;
+  min-width: 320px;
+  min-height: 100%;
+}
 
-  background:var(--bg);
+html {
+  background: var(--bg);
+}
 
-  color:var(--text);
+body {
+  min-height: 100vh;
+  overflow-x: hidden;
+
+  background: var(--bg);
+  color: var(--text);
 
   font-family:
     Inter,
-    Segoe UI,
+    "Segoe UI",
+    Arial,
     sans-serif;
 
+  line-height: 1.5;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-button{
-
-  cursor:pointer;
-
-  border:none;
-
-  outline:none;
-
-  transition:.2s;
-
+#root {
+  min-height: 100vh;
 }
 
-button:hover{
-
-  transform:translateY(-2px);
-
+button,
+input,
+select,
+textarea {
+  font: inherit;
 }
 
-a{
+button {
+  cursor: pointer;
+  border: none;
+  outline: none;
 
-  color:inherit;
-
-  text-decoration:none;
-
+  transition:
+    transform 0.2s,
+    background-color 0.2s,
+    border-color 0.2s,
+    color 0.2s,
+    opacity 0.2s;
 }
 
-img{
+button:hover:not(:disabled) {
+  transform: translateY(-2px);
+}
 
-  max-width:100%;
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
 
+input,
+select,
+textarea {
+  outline: none;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+img,
+svg {
+  display: block;
+}
+
+img {
+  max-width: 100%;
+}
+
+ul,
+ol {
+  list-style: none;
 }
