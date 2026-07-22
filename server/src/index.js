@@ -495,6 +495,11 @@ app.use(
   cors(corsOptions)
 );
 
+app.options(
+  "*",
+  cors(corsOptions)
+);
+
 app.use(
   express.json({
     limit: "1mb",
@@ -518,12 +523,12 @@ app.use(
  *
  * POST /api/measurements
  *
- * Lorsqu’une mesure est reçue,
- * la machine est immédiatement
- * déclarée en ligne.
+ * La machine est déclarée en ligne
+ * uniquement si l’enregistrement de la mesure
+ * s’est terminé avec un statut HTTP réussi.
  *
- * Cela évite de consulter MySQL
- * pour connaître son statut.
+ * Une mesure invalide ou refusée ne doit pas
+ * faire apparaître la machine comme connectée.
  */
 app.use(
   "/api/measurements",
@@ -543,12 +548,24 @@ app.use(
         req.body
       );
 
-    if (machineId) {
-      markMachineOnline(
-        machineId,
-        req.body
-      );
+    if (!machineId) {
+      return next();
     }
+
+    res.on(
+      "finish",
+      () => {
+        if (
+          res.statusCode >= 200 &&
+          res.statusCode < 300
+        ) {
+          markMachineOnline(
+            machineId,
+            req.body
+          );
+        }
+      }
+    );
 
     return next();
   }
@@ -621,13 +638,6 @@ app.get(
  * ===============================
  */
 
-/*
- * Cette route ne consulte pas MySQL.
- *
- * Exemple :
- *
- * GET /api/machines/1/status
- */
 app.get(
   "/api/machines/:machineId/status",
   (
@@ -684,60 +694,26 @@ app.get(
  * ===============================
  */
 
-/*
- * Machine :
- *
- * GET  /api/state
- * POST /api/measurements
- * GET  /api/history
- */
 app.use(
   "/api",
   machineRoutes
 );
 
-/*
- * Alertes :
- *
- * GET   /api/alerts
- * GET   /api/alerts/active
- * PATCH /api/alerts/:id/acknowledge
- */
 app.use(
   "/api/alerts",
   alertRoutes
 );
 
-/*
- * Seuils :
- *
- * GET    /api/thresholds
- * POST   /api/thresholds
- * DELETE /api/thresholds/:id
- */
 app.use(
   "/api/thresholds",
   thresholdRoutes
 );
 
-/*
- * Configuration machine :
- *
- * GET /api/configuration
- * GET /api/configuration/:machineId
- * PUT /api/configuration/:machineId
- */
 app.use(
   "/api/configuration",
   configurationRoutes
 );
 
-/*
- * Firmware OTA :
- *
- * GET /api/firmware
- * GET /api/firmware/download
- */
 app.use(
   "/api/firmware",
   firmwareRoutes
@@ -829,13 +805,6 @@ io.on(
       socket.id
     );
 
-    /*
-     * Cet événement confirme seulement
-     * la connexion du navigateur au serveur.
-     *
-     * Il ne signifie pas que l’ESP32
-     * est connecté.
-     */
     socket.emit(
       "server:connected",
       {
@@ -849,10 +818,6 @@ io.on(
       }
     );
 
-    /*
-     * Le Dashboard rejoint la salle
-     * de la machine sélectionnée.
-     */
     socket.on(
       "machine:join",
       (
@@ -889,10 +854,6 @@ io.on(
             normalizedId
           );
 
-        /*
-         * Le Dashboard reçoit immédiatement
-         * le véritable statut de la machine.
-         */
         socket.emit(
           presence.online
             ? "machine:online"
@@ -921,13 +882,6 @@ io.on(
           }
         );
 
-        /*
-         * Si la machine est en ligne,
-         * les dernières données présentes
-         * en mémoire sont envoyées.
-         *
-         * Aucune lecture MySQL n’est nécessaire.
-         */
         if (
           presence.online &&
           presence.lastData
@@ -950,10 +904,6 @@ io.on(
       }
     );
 
-    /*
-     * Le Dashboard quitte la salle
-     * de la machine précédente.
-     */
     socket.on(
       "machine:leave",
       (
@@ -978,10 +928,6 @@ io.on(
       }
     );
 
-    /*
-     * Le Dashboard demande le statut
-     * actuel d’une machine.
-     */
     socket.on(
       "machine:status",
       (
