@@ -17,7 +17,6 @@ import {
 
 import LineCard from "../components/LineCard.jsx";
 import SensorCard from "../components/SensorCard.jsx";
-import AlertPanel from "../components/AlertPanel.jsx";
 import PowerChart from "../components/PowerChart.jsx";
 
 import { useMachineData } from "../hooks/useMachineData.js";
@@ -236,7 +235,6 @@ export default function Dashboard({
     loading,
     error,
     reload,
-    setAlerts,
   } = useMachineData(1);
 
   const [
@@ -368,23 +366,6 @@ export default function Dashboard({
           metricId,
         ];
       }
-    );
-  }
-
-  function handleAlertAcknowledged(
-    alertId
-  ) {
-    setAlerts(
-      (previousAlerts) =>
-        previousAlerts.filter(
-          (alert) =>
-            Number(
-              alert.id ??
-                alert.databaseId ??
-                alert.alertId
-            ) !==
-            Number(alertId)
-        )
     );
   }
 
@@ -783,13 +764,6 @@ export default function Dashboard({
               </article>
             </div>
           </section>
-
-          <AlertPanel
-            alerts={safeAlerts}
-            onAcknowledged={
-              handleAlertAcknowledged
-            }
-          />
         </div>
 
         <aside className="analysis-panel">
