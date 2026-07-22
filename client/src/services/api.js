@@ -14,14 +14,50 @@ export const api = axios.create({
   },
 });
 
+/*
+ * Transforme une valeur en nombre sans convertir
+ * une chaîne vide ou null en 0 involontairement.
+ */
+function toNullableNumber(value) {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ""
+  ) {
+    return null;
+  }
+
+  const numericValue = Number(value);
+
+  return Number.isFinite(numericValue)
+    ? numericValue
+    : null;
+}
+
+function normalizeMachineId(machineId) {
+  const numericMachineId = Number(machineId);
+
+  return Number.isFinite(numericMachineId) &&
+    numericMachineId > 0
+    ? numericMachineId
+    : DEFAULT_MACHINE_ID;
+}
+
+function extractErrorMessage(error) {
+  return (
+    error?.response?.data?.message ||
+    error?.response?.data?.error ||
+    error?.message ||
+    "Erreur de communication avec le serveur"
+  );
+}
+
 api.interceptors.response.use(
   (response) => response,
 
   (error) => {
     const message =
-      error.response?.data?.message ||
-      error.message ||
-      "Erreur de communication avec le serveur";
+      extractErrorMessage(error);
 
     console.error("Erreur API :", message);
 
@@ -40,7 +76,8 @@ export async function getMachineState(
 ) {
   const response = await api.get("/state", {
     params: {
-      machineId,
+      machineId:
+        normalizeMachineId(machineId),
     },
   });
 
@@ -57,10 +94,16 @@ export async function getHistory({
   limit = 100,
   machineId = DEFAULT_MACHINE_ID,
 } = {}) {
+  const normalizedLimit = Math.max(
+    1,
+    Number(limit) || 100
+  );
+
   const response = await api.get("/history", {
     params: {
-      limit,
-      machineId,
+      limit: normalizedLimit,
+      machineId:
+        normalizeMachineId(machineId),
     },
   });
 
@@ -75,8 +118,9 @@ export async function getHistoryByPeriod({
     "/history/period",
     {
       params: {
-        period,
-        machineId,
+        period: period || "24h",
+        machineId:
+          normalizeMachineId(machineId),
       },
     }
   );
@@ -94,10 +138,16 @@ export async function getAlerts({
   limit = 100,
   machineId = DEFAULT_MACHINE_ID,
 } = {}) {
+  const normalizedLimit = Math.max(
+    1,
+    Number(limit) || 100
+  );
+
   const response = await api.get("/alerts", {
     params: {
-      limit,
-      machineId,
+      limit: normalizedLimit,
+      machineId:
+        normalizeMachineId(machineId),
     },
   });
 
@@ -111,7 +161,8 @@ export async function getActiveAlerts(
     "/alerts/active",
     {
       params: {
-        machineId,
+        machineId:
+          normalizeMachineId(machineId),
       },
     }
   );
@@ -122,14 +173,20 @@ export async function getActiveAlerts(
 export async function acknowledgeAlert(
   alertId
 ) {
-  if (!alertId) {
+  if (
+    alertId === null ||
+    alertId === undefined ||
+    alertId === ""
+  ) {
     throw new Error(
       "Identifiant d’alerte manquant"
     );
   }
 
   const response = await api.patch(
-    `/alerts/${alertId}/acknowledge`
+    `/alerts/${encodeURIComponent(
+      alertId
+    )}/acknowledge`
   );
 
   return response.data;
@@ -148,7 +205,8 @@ export async function getThresholds(
     "/thresholds",
     {
       params: {
-        machineId,
+        machineId:
+          normalizeMachineId(machineId),
       },
     }
   );
@@ -156,37 +214,54 @@ export async function getThresholds(
   return response.data;
 }
 
-export async function saveThreshold(data) {
+export async function saveThreshold(
+  data = {}
+) {
+  if (!data.source) {
+    throw new Error(
+      "La source du seuil est obligatoire"
+    );
+  }
+
+  const parameterName =
+    data.parameterName ??
+    data.parameter_name;
+
+  if (!parameterName) {
+    throw new Error(
+      "Le paramètre du seuil est obligatoire"
+    );
+  }
+
   const payload = {
-    machineId:
-      Number(data.machineId) ||
-      DEFAULT_MACHINE_ID,
+    machineId: normalizeMachineId(
+      data.machineId ??
+        data.machine_id
+    ),
 
     source: data.source,
 
-    parameterName:
-      data.parameterName ??
-      data.parameter_name,
+    parameterName,
 
-    minimumValue:
+    minimumValue: toNullableNumber(
       data.minimumValue ??
-      data.minimum_value ??
-      null,
+        data.minimum_value
+    ),
 
-    maximumValue:
+    maximumValue: toNullableNumber(
       data.maximumValue ??
-      data.maximum_value ??
-      null,
+        data.maximum_value
+    ),
 
-    warningValue:
+    warningValue: toNullableNumber(
       data.warningValue ??
-      data.warning_value ??
-      null,
+        data.warning_value
+    ),
 
-    criticalValue:
+    criticalValue: toNullableNumber(
       data.criticalValue ??
-      data.critical_value ??
-      null,
+        data.critical_value
+    ),
 
     unit: data.unit ?? "",
   };
@@ -203,17 +278,22 @@ export async function deleteThreshold(
   id,
   machineId = DEFAULT_MACHINE_ID
 ) {
-  if (!id) {
+  if (
+    id === null ||
+    id === undefined ||
+    id === ""
+  ) {
     throw new Error(
       "Identifiant du seuil manquant"
     );
   }
 
   const response = await api.delete(
-    `/thresholds/${id}`,
+    `/thresholds/${encodeURIComponent(id)}`,
     {
       params: {
-        machineId,
+        machineId:
+          normalizeMachineId(machineId),
       },
     }
   );
@@ -230,8 +310,11 @@ export async function deleteThreshold(
 export async function getMachineConfiguration(
   machineId = DEFAULT_MACHINE_ID
 ) {
+  const normalizedMachineId =
+    normalizeMachineId(machineId);
+
   const response = await api.get(
-    `/configuration/${machineId}`
+    `/configuration/${normalizedMachineId}`
   );
 
   return response.data;
@@ -241,38 +324,45 @@ export async function saveMachineConfiguration(
   machineId = DEFAULT_MACHINE_ID,
   configuration = {}
 ) {
+  const normalizedMachineId =
+    normalizeMachineId(machineId);
+
   const payload = {
     ultrasonicOffsetCm:
-      Number(
+      toNullableNumber(
         configuration.ultrasonicOffsetCm ??
           configuration.ultrasonic_offset_cm
-      ) || 0,
+      ) ?? 0,
 
     reservoirHeightCm:
-      Number(
+      toNullableNumber(
         configuration.reservoirHeightCm ??
           configuration.reservoir_height_cm
-      ) || 0,
+      ) ?? 0,
 
     reservoirCapacityLiters:
-      Number(
+      toNullableNumber(
         configuration.reservoirCapacityLiters ??
           configuration.reservoir_capacity_liters
-      ) || 0,
+      ) ?? 0,
 
     temperatureOffsetC:
-      Number(
+      toNullableNumber(
         configuration.temperatureOffsetC ??
           configuration.temperature_offset_c
-      ) || 0,
+      ) ?? 0,
   };
 
   const response = await api.put(
-    `/configuration/${machineId}`,
+    `/configuration/${normalizedMachineId}`,
     payload
   );
 
   return response.data;
 }
 
+/*
+ * Conservé pour la compatibilité avec les fichiers
+ * qui importent encore API_URL depuis services/api.js.
+ */
 export { API_URL };
