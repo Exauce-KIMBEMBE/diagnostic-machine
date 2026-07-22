@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -19,6 +20,8 @@ import {
   getThresholds,
 } from "../services/api.js";
 
+const MACHINE_OFFLINE_DELAY = 30000;
+
 const createInitialLine = () => ({
   voltage: 0,
   current: 0,
@@ -33,10 +36,13 @@ const createInitialLine = () => ({
 
 function createInitialState(machineId = 1) {
   return {
+    id: Number(machineId) || 1,
     machineId: Number(machineId) || 1,
     machineName: "",
+    name: "",
     timestamp: null,
     status: "offline",
+    online: false,
 
     lines: {
       L1: createInitialLine(),
@@ -74,27 +80,31 @@ function toNumber(value, fallback = 0) {
     : fallback;
 }
 
-function normalizeStatus(status, fallback = "offline") {
+function normalizeStatus(
+  status,
+  fallback = "offline"
+) {
   const normalizedStatus = String(
     status ?? fallback
   ).toLowerCase();
 
-  if (
-    [
-      "online",
-      "connected",
-      "active",
-      "normal",
-      "warning",
-      "critical",
-      "offline",
-      "error",
-    ].includes(normalizedStatus)
-  ) {
-    return normalizedStatus;
-  }
+  const allowedStatuses = [
+    "online",
+    "connected",
+    "active",
+    "normal",
+    "warning",
+    "critical",
+    "offline",
+    "disconnected",
+    "error",
+  ];
 
-  return fallback;
+  return allowedStatuses.includes(
+    normalizedStatus
+  )
+    ? normalizedStatus
+    : fallback;
 }
 
 function normalizeLine(line = {}) {
@@ -116,7 +126,7 @@ function normalizeLine(line = {}) {
       line.active_power
   );
 
-  const powerFactor = toNumber(
+  const rawPowerFactor = toNumber(
     line.powerFactor ??
       line.power_factor ??
       line.pf
@@ -146,6 +156,14 @@ function normalizeLine(line = {}) {
     calculatedReactivePower
   );
 
+  const powerFactor =
+    rawPowerFactor ||
+    (
+      apparentPower > 0
+        ? power / apparentPower
+        : 0
+    );
+
   return {
     voltage,
     current,
@@ -165,17 +183,11 @@ function normalizeLine(line = {}) {
         line.frequency_hz
     ),
 
-    powerFactor:
-      powerFactor ||
-      (
-        apparentPower > 0
-          ? power /
-            apparentPower
-          : 0
-      ),
+    powerFactor,
 
     status: normalizeStatus(
-      line.status
+      line.status,
+      "offline"
     ),
   };
 }
@@ -199,6 +211,7 @@ function normalizeMachineState(
     Number(
       data?.machineId ??
         data?.machine_id ??
+        data?.id ??
         machineId
     ) || 1;
 
@@ -214,24 +227,47 @@ function normalizeMachineState(
     return initialState;
   }
 
+  const machineName =
+    data.machineName ??
+    data.machine_name ??
+    data.name ??
+    "";
+
+  const rawStatus =
+    data.status ??
+    data.connectionStatus ??
+    data.connection_status;
+
+  const normalizedStatus =
+    normalizeStatus(
+      rawStatus,
+      "offline"
+    );
+
+  const online =
+    data.online === true ||
+    [
+      "online",
+      "connected",
+      "active",
+    ].includes(normalizedStatus);
+
   return {
     ...initialState,
     ...data,
 
+    id: normalizedMachineId,
     machineId:
       normalizedMachineId,
 
-    machineName:
-      data.machineName ??
-      data.machine_name ??
-      data.name ??
-      "",
+    machineName,
+    name: machineName,
 
-    status: normalizeStatus(
-      data.status ??
-        data.connectionStatus ??
-        data.connection_status
-    ),
+    status: online
+      ? "online"
+      : normalizedStatus,
+
+    online,
 
     timestamp:
       data.timestamp ??
@@ -272,7 +308,10 @@ function normalizeMachineState(
       status: normalizeStatus(
         data.temperature?.status ??
           data.temperatureStatus ??
-          data.temperature_status
+          data.temperature_status,
+        online
+          ? "normal"
+          : "offline"
       ),
     },
 
@@ -287,7 +326,10 @@ function normalizeMachineState(
       status: normalizeStatus(
         data.flow?.status ??
           data.flowStatus ??
-          data.flow_status
+          data.flow_status,
+        online
+          ? "normal"
+          : "offline"
       ),
     },
 
@@ -319,7 +361,10 @@ function normalizeMachineState(
       status: normalizeStatus(
         data.tank?.status ??
           data.tankStatus ??
-          data.tank_status
+          data.tank_status,
+        online
+          ? "normal"
+          : "offline"
       ),
     },
 
@@ -354,9 +399,7 @@ function extractArray(response) {
   return [];
 }
 
-function createHistoryItem(
-  machine
-) {
+function createHistoryItem(machine) {
   const lines = machine.lines;
   const tank = machine.tank;
 
@@ -366,73 +409,52 @@ function createHistoryItem(
 
     l1_voltage:
       lines.L1.voltage,
-
     l1_current:
       lines.L1.current,
-
     l1_power:
       lines.L1.power,
-
     l1_apparent_power:
       lines.L1.apparentPower,
-
     l1_reactive_power:
       lines.L1.reactivePower,
-
     l1_energy:
       lines.L1.energy,
-
     l1_frequency:
       lines.L1.frequency,
-
     l1_power_factor:
       lines.L1.powerFactor,
 
     l2_voltage:
       lines.L2.voltage,
-
     l2_current:
       lines.L2.current,
-
     l2_power:
       lines.L2.power,
-
     l2_apparent_power:
       lines.L2.apparentPower,
-
     l2_reactive_power:
       lines.L2.reactivePower,
-
     l2_energy:
       lines.L2.energy,
-
     l2_frequency:
       lines.L2.frequency,
-
     l2_power_factor:
       lines.L2.powerFactor,
 
     l3_voltage:
       lines.L3.voltage,
-
     l3_current:
       lines.L3.current,
-
     l3_power:
       lines.L3.power,
-
     l3_apparent_power:
       lines.L3.apparentPower,
-
     l3_reactive_power:
       lines.L3.reactivePower,
-
     l3_energy:
       lines.L3.energy,
-
     l3_frequency:
       lines.L3.frequency,
-
     l3_power_factor:
       lines.L3.powerFactor,
 
@@ -470,12 +492,23 @@ export function useMachineData(
       [machineId]
     );
 
+  const offlineTimerRef =
+    useRef(null);
+
+  const databaseLoadedRef =
+    useRef(false);
+
   const [machine, setMachine] =
     useState(() =>
       createInitialState(
         normalizedMachineId
       )
     );
+
+  const [
+    machineOnline,
+    setMachineOnline,
+  ] = useState(false);
 
   const [history, setHistory] =
     useState([]);
@@ -497,13 +530,74 @@ export function useMachineData(
   ] = useState(false);
 
   const [loading, setLoading] =
-    useState(true);
+    useState(false);
 
   const [error, setError] =
     useState("");
 
+  const clearOfflineTimer =
+    useCallback(() => {
+      if (
+        offlineTimerRef.current
+      ) {
+        clearTimeout(
+          offlineTimerRef.current
+        );
+
+        offlineTimerRef.current =
+          null;
+      }
+    }, []);
+
+  const markMachineOffline =
+    useCallback(() => {
+      clearOfflineTimer();
+
+      setMachineOnline(false);
+
+      setMachine(
+        createInitialState(
+          normalizedMachineId
+        )
+      );
+
+      setHistory([]);
+      setAlerts([]);
+      setThresholds([]);
+      setError("");
+
+      databaseLoadedRef.current =
+        false;
+    }, [
+      clearOfflineTimer,
+      normalizedMachineId,
+    ]);
+
+  const restartOfflineTimer =
+    useCallback(() => {
+      clearOfflineTimer();
+
+      offlineTimerRef.current =
+        setTimeout(
+          () => {
+            markMachineOffline();
+          },
+          MACHINE_OFFLINE_DELAY
+        );
+    }, [
+      clearOfflineTimer,
+      markMachineOffline,
+    ]);
+
   const loadDashboard =
     useCallback(async () => {
+      if (!machineOnline) {
+        setLoading(false);
+        setError("");
+
+        return;
+      }
+
       try {
         setLoading(true);
         setError("");
@@ -533,12 +627,17 @@ export function useMachineData(
           ),
         ]);
 
-        setMachine(
+        const normalizedMachine =
           normalizeMachineState(
             machineResponse,
             normalizedMachineId
-          )
-        );
+          );
+
+        setMachine({
+          ...normalizedMachine,
+          online: true,
+          status: "online",
+        });
 
         setHistory(
           extractArray(
@@ -557,6 +656,9 @@ export function useMachineData(
             thresholdsResponse
           )
         );
+
+        databaseLoadedRef.current =
+          true;
       } catch (requestError) {
         console.error(
           "Erreur chargement du tableau de bord :",
@@ -573,26 +675,62 @@ export function useMachineData(
         setLoading(false);
       }
     }, [
+      machineOnline,
       normalizedMachineId,
       period,
     ]);
 
   useEffect(() => {
+    clearOfflineTimer();
+
     setMachine(
       createInitialState(
         normalizedMachineId
       )
     );
 
+    setMachineOnline(false);
     setHistory([]);
     setAlerts([]);
     setThresholds([]);
     setError("");
-  }, [normalizedMachineId]);
+    setLoading(false);
+
+    databaseLoadedRef.current =
+      false;
+  }, [
+    clearOfflineTimer,
+    normalizedMachineId,
+  ]);
 
   useEffect(() => {
+    if (
+      !machineOnline ||
+      databaseLoadedRef.current
+    ) {
+      return;
+    }
+
     loadDashboard();
-  }, [loadDashboard]);
+  }, [
+    loadDashboard,
+    machineOnline,
+  ]);
+
+  useEffect(() => {
+    if (
+      !machineOnline ||
+      !databaseLoadedRef.current
+    ) {
+      return;
+    }
+
+    loadDashboard();
+  }, [
+    loadDashboard,
+    machineOnline,
+    period,
+  ]);
 
   useEffect(() => {
     const socket = io(
@@ -604,8 +742,10 @@ export function useMachineData(
         ],
 
         reconnection: true,
+
         reconnectionAttempts:
           Infinity,
+
         reconnectionDelay: 1000,
       }
     );
@@ -626,6 +766,7 @@ export function useMachineData(
       "disconnect",
       () => {
         setSocketConnected(false);
+        markMachineOffline();
       }
     );
 
@@ -638,6 +779,67 @@ export function useMachineData(
         );
 
         setSocketConnected(false);
+        markMachineOffline();
+      }
+    );
+
+    socket.on(
+      "machine:online",
+      (payload = {}) => {
+        const receivedMachineId =
+          Number(
+            payload.machineId ??
+              payload.machine_id ??
+              normalizedMachineId
+          );
+
+        if (
+          receivedMachineId !==
+          normalizedMachineId
+        ) {
+          return;
+        }
+
+        setMachineOnline(true);
+
+        setMachine(
+          (previousMachine) => ({
+            ...previousMachine,
+            id:
+              normalizedMachineId,
+            machineId:
+              normalizedMachineId,
+            status: "online",
+            online: true,
+            timestamp:
+              payload.timestamp ??
+              previousMachine.timestamp ??
+              new Date().toISOString(),
+          })
+        );
+
+        restartOfflineTimer();
+      }
+    );
+
+    socket.on(
+      "machine:offline",
+      (payload = {}) => {
+        const receivedMachineId =
+          Number(
+            payload.machineId ??
+              payload.machine_id ??
+              normalizedMachineId
+          );
+
+        if (
+          receivedMachineId !==
+          normalizedMachineId
+        ) {
+          return;
+        }
+
+        markMachineOffline();
       }
     );
 
@@ -647,7 +849,8 @@ export function useMachineData(
         const receivedMachineId =
           Number(
             receivedData?.machineId ??
-              receivedData?.machine_id
+              receivedData?.machine_id ??
+              receivedData?.id
           ) || 1;
 
         if (
@@ -657,15 +860,30 @@ export function useMachineData(
           return;
         }
 
-        const normalizedMachine =
-          normalizeMachineState(
+        const normalizedMachine = {
+          ...normalizeMachineState(
             receivedData,
             normalizedMachineId
-          );
+          ),
+          id:
+            normalizedMachineId,
+          machineId:
+            normalizedMachineId,
+          online: true,
+          status: "online",
+          timestamp:
+            receivedData?.timestamp ??
+            receivedData?.created_at ??
+            receivedData?.updated_at ??
+            new Date().toISOString(),
+        };
 
+        setMachineOnline(true);
         setMachine(
           normalizedMachine
         );
+
+        restartOfflineTimer();
 
         setHistory(
           (previousHistory) => [
@@ -691,11 +909,16 @@ export function useMachineData(
     socket.on(
       "alert:new",
       (alert) => {
+        if (!machineOnline) {
+          return;
+        }
+
         const alertMachineId =
           Number(
             alert?.machineId ??
-              alert?.machine_id
-          ) || normalizedMachineId;
+              alert?.machine_id ??
+              normalizedMachineId
+          );
 
         if (
           alertMachineId !==
@@ -749,6 +972,10 @@ export function useMachineData(
     socket.on(
       "threshold:update",
       (threshold) => {
+        if (!machineOnline) {
+          return;
+        }
+
         const thresholdMachineId =
           Number(
             threshold?.machine_id ??
@@ -800,6 +1027,10 @@ export function useMachineData(
         machine_id:
           deletedMachineIdSnake,
       }) => {
+        if (!machineOnline) {
+          return;
+        }
+
         const targetMachineId =
           deletedMachineId ??
           deletedMachineIdSnake;
@@ -825,6 +1056,8 @@ export function useMachineData(
     );
 
     return () => {
+      clearOfflineTimer();
+
       socket.emit(
         "machine:leave",
         {
@@ -836,10 +1069,18 @@ export function useMachineData(
       socket.removeAllListeners();
       socket.disconnect();
     };
-  }, [normalizedMachineId]);
+  }, [
+    clearOfflineTimer,
+    machineOnline,
+    markMachineOffline,
+    normalizedMachineId,
+    restartOfflineTimer,
+  ]);
 
   return {
     machine,
+    machineOnline,
+
     history,
     alerts,
     thresholds,
@@ -859,3 +1100,4 @@ export function useMachineData(
     setThresholds,
   };
 }
+
