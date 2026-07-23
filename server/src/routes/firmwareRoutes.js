@@ -148,7 +148,9 @@ router.post("/progress", (req, res, next) => {
      * La page React filtrera ensuite les événements
      * selon machineId.
      */
-    io.emit(
+   io.to(
+      `machine:${numericMachineId}`
+    ).emit(
       "firmware:progress",
       otaProgress
     );
