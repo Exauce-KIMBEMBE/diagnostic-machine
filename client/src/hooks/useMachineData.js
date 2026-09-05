@@ -22,6 +22,10 @@ import {
 
 const MACHINE_OFFLINE_DELAY = 30000;
 
+//======================================================
+// ÉTAT INITIAL
+//======================================================
+
 const createInitialLine = () => ({
   voltage: 0,
   current: 0,
@@ -34,13 +38,19 @@ const createInitialLine = () => ({
   status: "offline",
 });
 
-function createInitialState(machineId = 1) {
+function createInitialState(machineId = null) {
+  const normalizedMachineId =
+    Number(machineId) || null;
+
   return {
-    id: Number(machineId) || 1,
-    machineId: Number(machineId) || 1,
+    id: normalizedMachineId,
+    machineId: normalizedMachineId,
+
     machineName: "",
     name: "",
+
     timestamp: null,
+
     status: "offline",
     online: false,
 
@@ -72,8 +82,16 @@ function createInitialState(machineId = 1) {
   };
 }
 
-function toNumber(value, fallback = 0) {
-  const number = Number(value);
+//======================================================
+// OUTILS
+//======================================================
+
+function toNumber(
+  value,
+  fallback = 0
+) {
+  const number =
+    Number(value);
 
   return Number.isFinite(number)
     ? number
@@ -84,9 +102,10 @@ function normalizeStatus(
   status,
   fallback = "offline"
 ) {
-  const normalizedStatus = String(
-    status ?? fallback
-  ).toLowerCase();
+  const normalizedStatus =
+    String(
+      status ?? fallback
+    ).toLowerCase();
 
   const allowedStatuses = [
     "online",
@@ -107,7 +126,13 @@ function normalizeStatus(
     : fallback;
 }
 
-function normalizeLine(line = {}) {
+//======================================================
+// NORMALISATION D'UNE LIGNE
+//======================================================
+
+function normalizeLine(
+  line = {}
+) {
   const voltage = toNumber(
     line.voltage ??
       line.voltageValue ??
@@ -126,20 +151,22 @@ function normalizeLine(line = {}) {
       line.active_power
   );
 
-  const rawPowerFactor = toNumber(
-    line.powerFactor ??
-      line.power_factor ??
-      line.pf
-  );
+  const rawPowerFactor =
+    toNumber(
+      line.powerFactor ??
+        line.power_factor ??
+        line.pf
+    );
 
   const calculatedApparentPower =
     voltage * current;
 
-  const apparentPower = toNumber(
-    line.apparentPower ??
-      line.apparent_power,
-    calculatedApparentPower
-  );
+  const apparentPower =
+    toNumber(
+      line.apparentPower ??
+        line.apparent_power,
+      calculatedApparentPower
+    );
 
   const calculatedReactivePower =
     Math.sqrt(
@@ -150,11 +177,12 @@ function normalizeLine(line = {}) {
       )
     );
 
-  const reactivePower = toNumber(
-    line.reactivePower ??
-      line.reactive_power,
-    calculatedReactivePower
-  );
+  const reactivePower =
+    toNumber(
+      line.reactivePower ??
+        line.reactive_power,
+      calculatedReactivePower
+    );
 
   const powerFactor =
     rawPowerFactor ||
@@ -168,6 +196,7 @@ function normalizeLine(line = {}) {
     voltage,
     current,
     power,
+
     apparentPower,
     reactivePower,
 
@@ -192,13 +221,23 @@ function normalizeLine(line = {}) {
   };
 }
 
-function unwrapResponse(response) {
+//======================================================
+// RÉPONSE API
+//======================================================
+
+function unwrapResponse(
+  response
+) {
   return (
     response?.data?.data ??
     response?.data ??
     response
   );
 }
+
+//======================================================
+// NORMALISATION MACHINE
+//======================================================
 
 function normalizeMachineState(
   response,
@@ -213,7 +252,7 @@ function normalizeMachineState(
         data?.machine_id ??
         data?.id ??
         machineId
-    ) || 1;
+    ) || null;
 
   const initialState =
     createInitialState(
@@ -250,22 +289,29 @@ function normalizeMachineState(
       "online",
       "connected",
       "active",
-    ].includes(normalizedStatus);
+    ].includes(
+      normalizedStatus
+    );
 
   return {
     ...initialState,
     ...data,
 
-    id: normalizedMachineId,
+    id:
+      normalizedMachineId,
+
     machineId:
       normalizedMachineId,
 
     machineName,
-    name: machineName,
 
-    status: online
-      ? "online"
-      : normalizedStatus,
+    name:
+      machineName,
+
+    status:
+      online
+        ? "online"
+        : normalizedStatus,
 
     online,
 
@@ -376,7 +422,13 @@ function normalizeMachineState(
   };
 }
 
-function extractArray(response) {
+//======================================================
+// EXTRACTION TABLEAUX
+//======================================================
+
+function extractArray(
+  response
+) {
   const data =
     unwrapResponse(response);
 
@@ -385,13 +437,17 @@ function extractArray(response) {
   }
 
   if (
-    Array.isArray(data?.items)
+    Array.isArray(
+      data?.items
+    )
   ) {
     return data.items;
   }
 
   if (
-    Array.isArray(data?.results)
+    Array.isArray(
+      data?.results
+    )
   ) {
     return data.results;
   }
@@ -399,9 +455,18 @@ function extractArray(response) {
   return [];
 }
 
-function createHistoryItem(machine) {
-  const lines = machine.lines;
-  const tank = machine.tank;
+//======================================================
+// HISTORIQUE TEMPS RÉEL
+//======================================================
+
+function createHistoryItem(
+  machine
+) {
+  const lines =
+    machine.lines;
+
+  const tank =
+    machine.tank;
 
   return {
     machine_id:
@@ -409,52 +474,73 @@ function createHistoryItem(machine) {
 
     l1_voltage:
       lines.L1.voltage,
+
     l1_current:
       lines.L1.current,
+
     l1_power:
       lines.L1.power,
+
     l1_apparent_power:
       lines.L1.apparentPower,
+
     l1_reactive_power:
       lines.L1.reactivePower,
+
     l1_energy:
       lines.L1.energy,
+
     l1_frequency:
       lines.L1.frequency,
+
     l1_power_factor:
       lines.L1.powerFactor,
 
     l2_voltage:
       lines.L2.voltage,
+
     l2_current:
       lines.L2.current,
+
     l2_power:
       lines.L2.power,
+
     l2_apparent_power:
       lines.L2.apparentPower,
+
     l2_reactive_power:
       lines.L2.reactivePower,
+
     l2_energy:
       lines.L2.energy,
+
     l2_frequency:
       lines.L2.frequency,
+
     l2_power_factor:
       lines.L2.powerFactor,
 
     l3_voltage:
       lines.L3.voltage,
+
     l3_current:
       lines.L3.current,
+
     l3_power:
       lines.L3.power,
+
     l3_apparent_power:
       lines.L3.apparentPower,
+
     l3_reactive_power:
       lines.L3.reactivePower,
+
     l3_energy:
       lines.L3.energy,
+
     l3_frequency:
       lines.L3.frequency,
+
     l3_power_factor:
       lines.L3.powerFactor,
 
@@ -482,13 +568,31 @@ function createHistoryItem(machine) {
   };
 }
 
+//======================================================
+// HOOK PRINCIPAL
+//======================================================
+
 export function useMachineData(
-  machineId = 1
+  machineId,
+  token
 ) {
   const normalizedMachineId =
     useMemo(
-      () =>
-        Number(machineId) || 1,
+      () => {
+        const parsedMachineId =
+          Number(machineId);
+
+        if (
+          !Number.isInteger(
+            parsedMachineId
+          ) ||
+          parsedMachineId <= 0
+        ) {
+          return null;
+        }
+
+        return parsedMachineId;
+      },
       [machineId]
     );
 
@@ -498,42 +602,58 @@ export function useMachineData(
   const databaseLoadedRef =
     useRef(false);
 
-  const [machine, setMachine] =
-    useState(() =>
-      createInitialState(
-        normalizedMachineId
-      )
-    );
+  const [
+    machine,
+    setMachine,
+  ] = useState(() =>
+    createInitialState(
+      normalizedMachineId
+    )
+  );
 
   const [
     machineOnline,
     setMachineOnline,
   ] = useState(false);
 
-  const [history, setHistory] =
-    useState([]);
+  const [
+    history,
+    setHistory,
+  ] = useState([]);
 
-  const [alerts, setAlerts] =
-    useState([]);
+  const [
+    alerts,
+    setAlerts,
+  ] = useState([]);
 
   const [
     thresholds,
     setThresholds,
   ] = useState([]);
 
-  const [period, setPeriod] =
-    useState("24h");
+  const [
+    period,
+    setPeriod,
+  ] = useState("24h");
 
   const [
     socketConnected,
     setSocketConnected,
   ] = useState(false);
 
-  const [loading, setLoading] =
-    useState(false);
+  const [
+    loading,
+    setLoading,
+  ] = useState(false);
 
-  const [error, setError] =
-    useState("");
+  const [
+    error,
+    setError,
+  ] = useState("");
+
+  //====================================================
+  // TIMER HORS LIGNE
+  //====================================================
 
   const clearOfflineTimer =
     useCallback(() => {
@@ -548,6 +668,10 @@ export function useMachineData(
           null;
       }
     }, []);
+
+  //====================================================
+  // MACHINE HORS LIGNE
+  //====================================================
 
   const markMachineOffline =
     useCallback(() => {
@@ -564,6 +688,7 @@ export function useMachineData(
       setHistory([]);
       setAlerts([]);
       setThresholds([]);
+
       setError("");
 
       databaseLoadedRef.current =
@@ -572,6 +697,10 @@ export function useMachineData(
       clearOfflineTimer,
       normalizedMachineId,
     ]);
+
+  //====================================================
+  // REDÉMARRAGE TIMER
+  //====================================================
 
   const restartOfflineTimer =
     useCallback(() => {
@@ -589,9 +718,16 @@ export function useMachineData(
       markMachineOffline,
     ]);
 
+  //====================================================
+  // CHARGEMENT API
+  //====================================================
+
   const loadDashboard =
     useCallback(async () => {
-      if (!machineOnline) {
+      if (
+        !normalizedMachineId ||
+        !token
+      ) {
         setLoading(false);
         setError("");
 
@@ -607,25 +743,32 @@ export function useMachineData(
           historyResponse,
           alertsResponse,
           thresholdsResponse,
-        ] = await Promise.all([
-          getMachineState(
-            normalizedMachineId
-          ),
-
-          getHistoryByPeriod({
-            period,
-            machineId:
+        ] =
+          await Promise.all([
+            getMachineState(
               normalizedMachineId,
-          }),
+              token
+            ),
 
-          getActiveAlerts(
-            normalizedMachineId
-          ),
+            getHistoryByPeriod({
+              period,
 
-          getThresholds(
-            normalizedMachineId
-          ),
-        ]);
+              machineId:
+                normalizedMachineId,
+
+              token,
+            }),
+
+            getActiveAlerts(
+              normalizedMachineId,
+              token
+            ),
+
+            getThresholds(
+              normalizedMachineId,
+              token
+            ),
+          ]);
 
         const normalizedMachine =
           normalizeMachineState(
@@ -633,11 +776,14 @@ export function useMachineData(
             normalizedMachineId
           );
 
-        setMachine({
-          ...normalizedMachine,
-          online: true,
-          status: "online",
-        });
+        setMachine(
+          normalizedMachine
+        );
+
+        setMachineOnline(
+          normalizedMachine.online ===
+            true
+        );
 
         setHistory(
           extractArray(
@@ -659,26 +805,57 @@ export function useMachineData(
 
         databaseLoadedRef.current =
           true;
-      } catch (requestError) {
+
+        if (
+          normalizedMachine.online
+        ) {
+          restartOfflineTimer();
+        }
+      } catch (
+        requestError
+      ) {
         console.error(
           "Erreur chargement du tableau de bord :",
           requestError
         );
 
-        setError(
+        const status =
           requestError?.response
-            ?.data?.message ??
-            requestError?.message ??
-            "Impossible de charger les données"
-        );
+            ?.status;
+
+        if (
+          status === 401
+        ) {
+          setError(
+            "Votre session n'est plus valide."
+          );
+        } else if (
+          status === 403
+        ) {
+          setError(
+            "Vous n'avez pas accès à cette machine."
+          );
+        } else {
+          setError(
+            requestError?.response
+              ?.data?.message ??
+              requestError?.message ??
+              "Impossible de charger les données"
+          );
+        }
       } finally {
         setLoading(false);
       }
     }, [
-      machineOnline,
       normalizedMachineId,
       period,
+      restartOfflineTimer,
+      token,
     ]);
+
+  //====================================================
+  // RÉINITIALISATION LORS DU CHANGEMENT DE MACHINE
+  //====================================================
 
   useEffect(() => {
     clearOfflineTimer();
@@ -690,9 +867,11 @@ export function useMachineData(
     );
 
     setMachineOnline(false);
+
     setHistory([]);
     setAlerts([]);
     setThresholds([]);
+
     setError("");
     setLoading(false);
 
@@ -703,10 +882,14 @@ export function useMachineData(
     normalizedMachineId,
   ]);
 
+  //====================================================
+  // CHARGEMENT INITIAL
+  //====================================================
+
   useEffect(() => {
     if (
-      !machineOnline ||
-      databaseLoadedRef.current
+      !normalizedMachineId ||
+      !token
     ) {
       return;
     }
@@ -714,61 +897,87 @@ export function useMachineData(
     loadDashboard();
   }, [
     loadDashboard,
-    machineOnline,
+    normalizedMachineId,
+    token,
   ]);
+
+  //====================================================
+  // SOCKET.IO
+  //====================================================
 
   useEffect(() => {
     if (
-      !machineOnline ||
-      !databaseLoadedRef.current
+      !normalizedMachineId ||
+      !token
     ) {
+      setSocketConnected(
+        false
+      );
+
       return;
     }
 
-    loadDashboard();
-  }, [
-    loadDashboard,
-    machineOnline,
-    period,
-  ]);
+    const socket =
+      io(
+        SOCKET_URL ||
+          API_URL,
+        {
+          transports: [
+            "websocket",
+            "polling",
+          ],
 
-  useEffect(() => {
-    const socket = io(
-      SOCKET_URL || API_URL,
-      {
-        transports: [
-          "websocket",
-          "polling",
-        ],
+          auth: {
+            token,
+          },
 
-        reconnection: true,
+          reconnection: true,
 
-        reconnectionAttempts:
-          Infinity,
+          reconnectionAttempts:
+            Infinity,
 
-        reconnectionDelay: 1000,
+          reconnectionDelay:
+            1000,
+        }
+      );
+
+    //==================================================
+    // CONNEXION SOCKET
+    //==================================================
+
+    socket.on(
+      "connect",
+      () => {
+        setSocketConnected(
+          true
+        );
+
+        socket.emit(
+          "machine:join",
+          {
+            machineId:
+              normalizedMachineId,
+          }
+        );
       }
     );
 
-    socket.on("connect", () => {
-      setSocketConnected(true);
-
-      socket.emit(
-        "machine:join",
-        {
-          machineId:
-            normalizedMachineId,
-        }
-      );
-    });
+    //==================================================
+    // DÉCONNEXION SOCKET
+    //==================================================
 
     socket.on(
       "disconnect",
       () => {
-        setSocketConnected(false);
-        markMachineOffline();
+        setSocketConnected(
+          false
+        );
       }
     );
+
+    //==================================================
+    // ERREUR SOCKET
+    //==================================================
 
     socket.on(
       "connect_error",
@@ -778,10 +987,15 @@ export function useMachineData(
           socketError.message
         );
 
-        setSocketConnected(false);
-        markMachineOffline();
+        setSocketConnected(
+          false
+        );
       }
     );
+
+    //==================================================
+    // MACHINE EN LIGNE
+    //==================================================
 
     socket.on(
       "machine:online",
@@ -800,17 +1014,26 @@ export function useMachineData(
           return;
         }
 
-        setMachineOnline(true);
+        setMachineOnline(
+          true
+        );
 
         setMachine(
           (previousMachine) => ({
             ...previousMachine,
+
             id:
               normalizedMachineId,
+
             machineId:
               normalizedMachineId,
-            status: "online",
-            online: true,
+
+            status:
+              "online",
+
+            online:
+              true,
+
             timestamp:
               payload.timestamp ??
               previousMachine.timestamp ??
@@ -819,8 +1042,18 @@ export function useMachineData(
         );
 
         restartOfflineTimer();
+
+        if (
+          !databaseLoadedRef.current
+        ) {
+          loadDashboard();
+        }
       }
     );
+
+    //==================================================
+    // MACHINE HORS LIGNE
+    //==================================================
 
     socket.on(
       "machine:offline",
@@ -843,6 +1076,10 @@ export function useMachineData(
       }
     );
 
+    //==================================================
+    // NOUVELLES MESURES
+    //==================================================
+
     socket.on(
       "machine:update",
       (receivedData) => {
@@ -851,7 +1088,7 @@ export function useMachineData(
             receivedData?.machineId ??
               receivedData?.machine_id ??
               receivedData?.id
-          ) || 1;
+          );
 
         if (
           receivedMachineId !==
@@ -865,12 +1102,19 @@ export function useMachineData(
             receivedData,
             normalizedMachineId
           ),
+
           id:
             normalizedMachineId,
+
           machineId:
             normalizedMachineId,
-          online: true,
-          status: "online",
+
+          online:
+            true,
+
+          status:
+            "online",
+
           timestamp:
             receivedData?.timestamp ??
             receivedData?.created_at ??
@@ -878,7 +1122,10 @@ export function useMachineData(
             new Date().toISOString(),
         };
 
-        setMachineOnline(true);
+        setMachineOnline(
+          true
+        );
+
         setMachine(
           normalizedMachine
         );
@@ -886,12 +1133,16 @@ export function useMachineData(
         restartOfflineTimer();
 
         setHistory(
-          (previousHistory) => [
-            ...previousHistory,
-            createHistoryItem(
-              normalizedMachine
-            ),
-          ].slice(-1000)
+          (
+            previousHistory
+          ) =>
+            [
+              ...previousHistory,
+
+              createHistoryItem(
+                normalizedMachine
+              ),
+            ].slice(-1000)
         );
 
         if (
@@ -906,41 +1157,51 @@ export function useMachineData(
       }
     );
 
+    //==================================================
+    // NOUVELLE ALERTE
+    //==================================================
+
     socket.on(
       "alert:new",
       (alert) => {
-        if (!machineOnline) {
-          return;
-        }
-
         const alertMachineId =
           Number(
             alert?.machineId ??
-              alert?.machine_id ??
-              normalizedMachineId
+              alert?.machine_id
           );
 
         if (
+          alertMachineId &&
           alertMachineId !==
-          normalizedMachineId
+            normalizedMachineId
         ) {
           return;
         }
 
         setAlerts(
-          (previousAlerts) => {
+          (
+            previousAlerts
+          ) => {
             const exists =
               previousAlerts.some(
                 (item) =>
-                  Number(item.id) ===
-                  Number(alert.id)
+                  Number(
+                    item.id
+                  ) ===
+                  Number(
+                    alert.id
+                  )
               );
 
             if (exists) {
               return previousAlerts.map(
                 (item) =>
-                  Number(item.id) ===
-                  Number(alert.id)
+                  Number(
+                    item.id
+                  ) ===
+                  Number(
+                    alert.id
+                  )
                     ? alert
                     : item
               );
@@ -955,48 +1216,78 @@ export function useMachineData(
       }
     );
 
+    //==================================================
+    // ALERTE ACQUITTÉE
+    //==================================================
+
     socket.on(
       "alert:acknowledged",
-      ({ id }) => {
+      (payload = {}) => {
+        const acknowledgedMachineId =
+          Number(
+            payload.machineId ??
+              payload.machine_id
+          );
+
+        if (
+          acknowledgedMachineId &&
+          acknowledgedMachineId !==
+            normalizedMachineId
+        ) {
+          return;
+        }
+
         setAlerts(
-          (previousAlerts) =>
+          (
+            previousAlerts
+          ) =>
             previousAlerts.filter(
               (alert) =>
-                Number(alert.id) !==
-                Number(id)
+                Number(
+                  alert.id
+                ) !==
+                Number(
+                  payload.id
+                )
             )
         );
       }
     );
 
+    //==================================================
+    // SEUIL MODIFIÉ
+    //==================================================
+
     socket.on(
       "threshold:update",
       (threshold) => {
-        if (!machineOnline) {
-          return;
-        }
-
         const thresholdMachineId =
           Number(
             threshold?.machine_id ??
-              threshold?.machineId ??
-              normalizedMachineId
+              threshold?.machineId
           );
 
         if (
+          thresholdMachineId &&
           thresholdMachineId !==
-          normalizedMachineId
+            normalizedMachineId
         ) {
           return;
         }
 
         setThresholds(
-          (previousThresholds) => {
+          (
+            previousThresholds
+          ) => {
             const existing =
               previousThresholds.some(
                 (item) =>
-                  Number(item.id) ===
-                  Number(threshold.id)
+                  Number(
+                    item.id
+                  ) ===
+                  Number(
+                    threshold.id
+                  )
               );
 
             if (!existing) {
@@ -1008,8 +1299,12 @@ export function useMachineData(
 
             return previousThresholds.map(
               (item) =>
-                Number(item.id) ===
-                Number(threshold.id)
+                Number(
+                  item.id
+                ) ===
+                Number(
+                  threshold.id
+                )
                   ? threshold
                   : item
             );
@@ -1018,86 +1313,108 @@ export function useMachineData(
       }
     );
 
+    //==================================================
+    // SEUIL SUPPRIMÉ
+    //==================================================
+
     socket.on(
       "threshold:delete",
-      ({
-        id,
-        machineId:
-          deletedMachineId,
-        machine_id:
-          deletedMachineIdSnake,
-      }) => {
-        if (!machineOnline) {
-          return;
-        }
-
-        const targetMachineId =
-          deletedMachineId ??
-          deletedMachineIdSnake;
+      (payload = {}) => {
+        const deletedMachineId =
+          Number(
+            payload.machineId ??
+              payload.machine_id
+          );
 
         if (
-          targetMachineId &&
-          Number(
-            targetMachineId
-          ) !== normalizedMachineId
+          deletedMachineId &&
+          deletedMachineId !==
+            normalizedMachineId
         ) {
           return;
         }
 
         setThresholds(
-          (previousThresholds) =>
+          (
+            previousThresholds
+          ) =>
             previousThresholds.filter(
               (item) =>
-                Number(item.id) !==
-                Number(id)
+                Number(
+                  item.id
+                ) !==
+                Number(
+                  payload.id
+                )
             )
         );
       }
     );
 
+    //==================================================
+    // NETTOYAGE
+    //==================================================
+
     return () => {
       clearOfflineTimer();
 
-      socket.emit(
-        "machine:leave",
-        {
-          machineId:
-            normalizedMachineId,
-        }
-      );
+      if (socket.connected) {
+        socket.emit(
+          "machine:leave",
+          {
+            machineId:
+              normalizedMachineId,
+          }
+        );
+      }
 
       socket.removeAllListeners();
+
       socket.disconnect();
     };
   }, [
     clearOfflineTimer,
-    machineOnline,
+    loadDashboard,
     markMachineOffline,
     normalizedMachineId,
     restartOfflineTimer,
+    token,
   ]);
+
+  //====================================================
+  // RETOUR DU HOOK
+  //====================================================
 
   return {
     machine,
+
     machineOnline,
 
     history,
+
     alerts,
+
     thresholds,
 
     period,
+
     setPeriod,
 
     socketConnected,
+
     loading,
+
     error,
 
-    reload: loadDashboard,
+    reload:
+      loadDashboard,
 
     setMachine,
+
     setHistory,
+
     setAlerts,
+
     setThresholds,
   };
 }
-
