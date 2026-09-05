@@ -2381,3 +2381,191 @@
     padding: 14px;
   }
 }
+
+/* =========================================================
+   UTILISATEUR CONNECTÉ - NAVBAR
+========================================================= */
+
+.navbar-user {
+  padding: 20px 8px;
+
+  border-bottom: 1px solid
+    rgba(148, 163, 184, 0.12);
+}
+
+.navbar-user-card {
+  display: flex;
+  align-items: center;
+
+  gap: 10px;
+
+  min-width: 0;
+
+  padding: 11px;
+
+  background: #111c2e;
+
+  border: 1px solid
+    rgba(148, 163, 184, 0.14);
+
+  border-radius: 10px;
+}
+
+.navbar-user-icon {
+  display: grid;
+  place-items: center;
+
+  width: 38px;
+  height: 38px;
+
+  flex-shrink: 0;
+
+  color: #93c5fd;
+
+  background:
+    rgba(59, 130, 246, 0.13);
+
+  border-radius: 9px;
+}
+
+.navbar-user-info {
+  min-width: 0;
+}
+
+.navbar-user-info strong {
+  display: block;
+
+  overflow: hidden;
+
+  color: #e2e8f0;
+
+  font-size: 12px;
+
+  white-space: nowrap;
+
+  text-overflow: ellipsis;
+}
+
+.navbar-user-info span {
+  display: block;
+
+  margin-top: 4px;
+
+  overflow: hidden;
+
+  color: #64748b;
+
+  font-size: 10px;
+
+  white-space: nowrap;
+
+  text-overflow: ellipsis;
+}
+
+/* =========================================================
+   RÔLE UTILISATEUR
+========================================================= */
+
+.navbar-role {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  margin-top: 9px;
+
+  padding: 4px 9px;
+
+  border-radius: 999px;
+
+  font-size: 10px;
+  font-weight: 900;
+
+  text-transform: uppercase;
+
+  letter-spacing: 0.06em;
+}
+
+.navbar-role-client {
+  color: #bfdbfe;
+
+  background:
+    rgba(59, 130, 246, 0.11);
+
+  border: 1px solid
+    rgba(59, 130, 246, 0.22);
+}
+
+.navbar-role-manager {
+  color: #ddd6fe;
+
+  background:
+    rgba(139, 92, 246, 0.12);
+
+  border: 1px solid
+    rgba(139, 92, 246, 0.25);
+}
+
+/* =========================================================
+   DÉCONNEXION
+========================================================= */
+
+.navbar-logout {
+  display: flex;
+  align-items: center;
+
+  gap: 10px;
+
+  width: 100%;
+  min-height: 42px;
+
+  padding: 0 12px;
+
+  margin-bottom: 14px;
+
+  color: #fca5a5;
+
+  background:
+    rgba(239, 68, 68, 0.06);
+
+  border: 1px solid
+    rgba(239, 68, 68, 0.13);
+
+  border-radius: 9px;
+
+  font-size: 12px;
+  font-weight: 800;
+
+  cursor: pointer;
+
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease;
+}
+
+.navbar-logout:hover {
+  color: #fecaca;
+
+  background:
+    rgba(239, 68, 68, 0.12);
+
+  border-color:
+    rgba(239, 68, 68, 0.26);
+}
+
+.navbar-version {
+  display: grid;
+  gap: 4px;
+}
+
+.navbar-version span {
+  color: #475569;
+
+  font-size: 10px;
+}
+
+.navbar-version strong {
+  color: #64748b;
+
+  font-size: 11px;
+}
