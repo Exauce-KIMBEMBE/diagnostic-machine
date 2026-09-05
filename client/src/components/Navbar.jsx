@@ -3,9 +3,11 @@ import {
   Bell,
   ChevronDown,
   Gauge,
+  LogOut,
   Menu,
   Settings,
   SlidersHorizontal,
+  User,
   X,
 } from "lucide-react";
 
@@ -13,28 +15,40 @@ import {
   useState,
 } from "react";
 
+//======================================================
+// NAVIGATION
+//======================================================
+
 const NAVIGATION_ITEMS = [
   {
     id: "dashboard",
     label: "Tableau de bord",
     icon: Gauge,
+    managerOnly: false,
   },
   {
     id: "alerts",
     label: "Alertes",
     icon: Bell,
+    managerOnly: false,
   },
   {
     id: "thresholds",
     label: "Seuils",
     icon: SlidersHorizontal,
+    managerOnly: false,
   },
   {
     id: "settings",
     label: "Paramètres",
     icon: Settings,
+    managerOnly: true,
   },
 ];
+
+//======================================================
+// MACHINE
+//======================================================
 
 function getMachineId(
   machine
@@ -55,7 +69,9 @@ function getMachineName(
     machine?.machineName ??
     machine?.machine_name ??
     machine?.label ??
-    `Machine ${getMachineId(machine) ?? ""}`
+    `Machine ${
+      getMachineId(machine) ?? ""
+    }`
   );
 }
 
@@ -63,6 +79,9 @@ function getMachineCode(
   machine
 ) {
   return (
+    machine?.serial_number ??
+    machine?.serialNumber ??
+    machine?.serial ??
     machine?.code ??
     machine?.identifier ??
     machine?.machineCode ??
@@ -85,9 +104,9 @@ function isMachineOnline(
   const status =
     String(
       machine?.status ??
-      machine?.connectionStatus ??
-      machine?.connection_status ??
-      ""
+        machine?.connectionStatus ??
+        machine?.connection_status ??
+        ""
     ).toLowerCase();
 
   return [
@@ -98,17 +117,84 @@ function isMachineOnline(
   ].includes(status);
 }
 
+//======================================================
+// UTILISATEUR
+//======================================================
+
+function getUserName(
+  user
+) {
+  return (
+    user?.name ??
+    user?.username ??
+    "Utilisateur"
+  );
+}
+
+function getUserEmail(
+  user
+) {
+  return (
+    user?.email ??
+    ""
+  );
+}
+
+function getUserRole(
+  user
+) {
+  return String(
+    user?.role ?? "client"
+  ).toLowerCase();
+}
+
+function getRoleLabel(
+  role
+) {
+  if (role === "manager") {
+    return "Manager";
+  }
+
+  return "Client";
+}
+
+//======================================================
+// COMPOSANT
+//======================================================
+
 export default function Navbar({
   activePage = "dashboard",
+
   onNavigate,
+
+  user = null,
+
   machines = [],
+
   selectedMachineId,
+
   onMachineChange,
+
+  onLogout,
 }) {
   const [
     mobileOpen,
     setMobileOpen,
   ] = useState(false);
+
+  //====================================================
+  // UTILISATEUR CONNECTÉ
+  //====================================================
+
+  const userRole =
+    getUserRole(user);
+
+  const isManager =
+    userRole === "manager";
+
+  //====================================================
+  // MACHINES AUTORISÉES
+  //====================================================
 
   const safeMachines =
     Array.isArray(machines)
@@ -135,12 +221,25 @@ export default function Navbar({
       selectedMachine
     );
 
+  //====================================================
+  // NAVIGATION
+  //====================================================
+
   function handleNavigation(
     pageId
   ) {
-    onNavigate?.(pageId);
-    setMobileOpen(false);
+    onNavigate?.(
+      pageId
+    );
+
+    setMobileOpen(
+      false
+    );
   }
+
+  //====================================================
+  // CHANGEMENT DE MACHINE
+  //====================================================
 
   function handleMachineChange(
     event
@@ -159,11 +258,64 @@ export default function Navbar({
           String(value)
       );
 
+    if (!machine) {
+      return;
+    }
+
+    const machineId =
+      getMachineId(
+        machine
+      );
+
+    if (
+      machineId === null ||
+      machineId === undefined
+    ) {
+      return;
+    }
+
     onMachineChange?.(
-      machine ??
-      value
+      machineId
+    );
+
+    setMobileOpen(
+      false
     );
   }
+
+  //====================================================
+  // DÉCONNEXION
+  //====================================================
+
+  function handleLogout() {
+    setMobileOpen(
+      false
+    );
+
+    onLogout?.();
+  }
+
+  //====================================================
+  // NAVIGATION AUTORISÉE
+  //====================================================
+
+  const visibleNavigationItems =
+    NAVIGATION_ITEMS.filter(
+      (item) => {
+        if (
+          item.managerOnly &&
+          !isManager
+        ) {
+          return false;
+        }
+
+        return true;
+      }
+    );
+
+  //====================================================
+  // AFFICHAGE
+  //====================================================
 
   return (
     <>
@@ -212,6 +364,10 @@ export default function Navbar({
             : ""
         }`}
       >
+        {/* ============================================
+            MARQUE
+        ============================================ */}
+
         <div className="navbar-brand">
           <div className="navbar-logo">
             <Activity
@@ -229,6 +385,58 @@ export default function Navbar({
             </span>
           </div>
         </div>
+
+        {/* ============================================
+            UTILISATEUR CONNECTÉ
+        ============================================ */}
+
+        <div className="navbar-user">
+          <span className="navbar-section-label">
+            Compte connecté
+          </span>
+
+          <div className="navbar-user-card">
+            <div className="navbar-user-icon">
+              <User
+                size={19}
+              />
+            </div>
+
+            <div className="navbar-user-info">
+              <strong>
+                {getUserName(
+                  user
+                )}
+              </strong>
+
+              {getUserEmail(
+                user
+              ) ? (
+                <span>
+                  {getUserEmail(
+                    user
+                  )}
+                </span>
+              ) : null}
+            </div>
+          </div>
+
+          <div
+            className={`navbar-role ${
+              isManager
+                ? "navbar-role-manager"
+                : "navbar-role-client"
+            }`}
+          >
+            {getRoleLabel(
+              userRole
+            )}
+          </div>
+        </div>
+
+        {/* ============================================
+            MACHINE ACTIVE
+        ============================================ */}
 
         <div className="navbar-machine">
           <span className="navbar-section-label">
@@ -285,7 +493,7 @@ export default function Navbar({
             </div>
           ) : (
             <div className="navbar-no-machine">
-              Aucune machine
+              Aucune machine associée
             </div>
           )}
 
@@ -293,7 +501,7 @@ export default function Navbar({
             <div className="navbar-machine-info">
               <div>
                 <span>
-                  Identifiant
+                  Numéro de série
                 </span>
 
                 <strong>
@@ -320,6 +528,10 @@ export default function Navbar({
           ) : null}
         </div>
 
+        {/* ============================================
+            NAVIGATION
+        ============================================ */}
+
         <nav
           className="navbar-navigation"
           aria-label="Navigation principale"
@@ -328,7 +540,7 @@ export default function Navbar({
             Navigation
           </span>
 
-          {NAVIGATION_ITEMS.map(
+          {visibleNavigationItems.map(
             ({
               id,
               label,
@@ -360,14 +572,36 @@ export default function Navbar({
           )}
         </nav>
 
-        <div className="navbar-footer">
-          <span>
-            Système de diagnostic
-          </span>
+        {/* ============================================
+            BAS DU MENU
+        ============================================ */}
 
-          <strong>
-            Version 1.0.0
-          </strong>
+        <div className="navbar-footer">
+          <button
+            type="button"
+            className="navbar-logout"
+            onClick={
+              handleLogout
+            }
+          >
+            <LogOut
+              size={18}
+            />
+
+            <span>
+              Déconnexion
+            </span>
+          </button>
+
+          <div className="navbar-version">
+            <span>
+              Système de diagnostic
+            </span>
+
+            <strong>
+              Version 1.0.0
+            </strong>
+          </div>
         </div>
       </aside>
     </>
