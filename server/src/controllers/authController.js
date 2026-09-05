@@ -21,6 +21,37 @@ function normalizeEmail(
 
 //======================================================
 
+function normalizeSerialNumber(
+  serialNumber
+) {
+  return String(
+    serialNumber ?? ""
+  )
+    .trim();
+}
+
+//======================================================
+
+function normalizeMachineId(
+  value
+) {
+  const machineId =
+    Number(value);
+
+  if (
+    !Number.isInteger(
+      machineId
+    ) ||
+    machineId <= 0
+  ) {
+    return null;
+  }
+
+  return machineId;
+}
+
+//======================================================
+
 function getJwtSecret() {
   const secret =
     process.env.JWT_SECRET;
@@ -75,6 +106,68 @@ function createToken(
 }
 
 //======================================================
+// RÉCUPÉRATION DES MACHINES D'UN UTILISATEUR
+//======================================================
+
+async function getUserMachines(
+  user
+) {
+  if (
+    user.role ===
+    "manager"
+  ) {
+    const [
+      machineRows,
+    ] =
+      await pool.query(
+        `
+        SELECT
+          id,
+          name,
+          serial_number,
+          location,
+          description,
+          created_at
+        FROM machines
+
+        ORDER BY id ASC
+        `
+      );
+
+    return machineRows;
+  }
+
+  const [
+    machineRows,
+  ] =
+    await pool.query(
+      `
+      SELECT
+        m.id,
+        m.name,
+        m.serial_number,
+        m.location,
+        m.description,
+        m.created_at
+
+      FROM user_machines AS um
+
+      INNER JOIN machines AS m
+        ON m.id = um.machine_id
+
+      WHERE um.user_id = ?
+
+      ORDER BY m.id ASC
+      `,
+      [
+        user.id,
+      ]
+    );
+
+  return machineRows;
+}
+
+//======================================================
 // INSCRIPTION
 //======================================================
 
@@ -84,6 +177,9 @@ export async function register(
 ) {
   const connection =
     await pool.getConnection();
+
+  let transactionStarted =
+    false;
 
   try {
     const name =
@@ -104,8 +200,14 @@ export async function register(
       );
 
     const machineId =
-      Number(
+      normalizeMachineId(
         req.body?.machineId
+      );
+
+    const serialNumber =
+      normalizeSerialNumber(
+        req.body?.serialNumber ??
+        req.body?.serial_number
       );
 
     //==================================================
@@ -116,7 +218,8 @@ export async function register(
       return res
         .status(400)
         .json({
-          success: false,
+          success:
+            false,
 
           message:
             "Nom requis",
@@ -127,7 +230,8 @@ export async function register(
       return res
         .status(400)
         .json({
-          success: false,
+          success:
+            false,
 
           message:
             "Email requis",
@@ -138,7 +242,8 @@ export async function register(
       return res
         .status(400)
         .json({
-          success: false,
+          success:
+            false,
 
           message:
             "Mot de passe requis",
@@ -146,31 +251,41 @@ export async function register(
     }
 
     if (
-      password.length < 8
+      password.length <
+      8
     ) {
       return res
         .status(400)
         .json({
-          success: false,
+          success:
+            false,
 
           message:
             "Le mot de passe doit contenir au moins 8 caractères",
         });
     }
 
-    if (
-      !Number.isInteger(
-        machineId
-      ) ||
-      machineId <= 0
-    ) {
+    if (!machineId) {
       return res
         .status(400)
         .json({
-          success: false,
+          success:
+            false,
 
           message:
             "Identifiant machine invalide",
+        });
+    }
+
+    if (!serialNumber) {
+      return res
+        .status(400)
+        .json({
+          success:
+            false,
+
+          message:
+            "Numéro de série de la machine requis",
         });
     }
 
@@ -179,6 +294,9 @@ export async function register(
     //==================================================
 
     await connection.beginTransaction();
+
+    transactionStarted =
+      true;
 
     //==================================================
     // VÉRIFICATION EMAIL
@@ -191,8 +309,11 @@ export async function register(
         `
         SELECT
           id
+
         FROM users
+
         WHERE email = ?
+
         LIMIT 1
         `,
         [
@@ -206,10 +327,14 @@ export async function register(
     ) {
       await connection.rollback();
 
+      transactionStarted =
+        false;
+
       return res
         .status(409)
         .json({
-          success: false,
+          success:
+            false,
 
           message:
             "Un compte existe déjà avec cet email",
@@ -217,7 +342,7 @@ export async function register(
     }
 
     //==================================================
-    // VÉRIFICATION MACHINE
+    // VÉRIFICATION MACHINE + NUMÉRO DE SÉRIE
     //==================================================
 
     const [
@@ -229,10 +354,68 @@ export async function register(
           id,
           name,
           serial_number,
-          location
+          location,
+          description,
+          created_at
+
         FROM machines
+
         WHERE id = ?
+          AND serial_number = ?
+
         LIMIT 1
+        `,
+        [
+          machineId,
+          serialNumber,
+        ]
+      );
+
+    if (
+      machineRows.length ===
+      0
+    ) {
+      await connection.rollback();
+
+      transactionStarted =
+        false;
+
+      return res
+        .status(404)
+        .json({
+          success:
+            false,
+
+          message:
+            "Machine introuvable ou numéro de série incorrect",
+        });
+    }
+
+    //==================================================
+    // VERROUILLAGE DE LA MACHINE
+    //==================================================
+
+    /*
+     * FOR UPDATE permet d'éviter que deux
+     * comptes essaient d'associer la même
+     * machine exactement au même moment.
+     */
+
+    const [
+      lockedMachineRows,
+    ] =
+      await connection.query(
+        `
+        SELECT
+          id
+
+        FROM machines
+
+        WHERE id = ?
+
+        LIMIT 1
+
+        FOR UPDATE
         `,
         [
           machineId,
@@ -240,14 +423,19 @@ export async function register(
       );
 
     if (
-      machineRows.length === 0
+      lockedMachineRows.length ===
+      0
     ) {
       await connection.rollback();
+
+      transactionStarted =
+        false;
 
       return res
         .status(404)
         .json({
-          success: false,
+          success:
+            false,
 
           message:
             "Machine introuvable",
@@ -255,17 +443,8 @@ export async function register(
     }
 
     //==================================================
-    // VÉRIFICATION MACHINE DÉJÀ ATTRIBUÉE
+    // MACHINE DÉJÀ ATTRIBUÉE
     //==================================================
-
-    /*
-     * Chaque client doit être rattaché
-     * uniquement à sa machine.
-     *
-     * Cette vérification empêche aussi
-     * qu'une même machine soit attribuée
-     * à plusieurs clients.
-     */
 
     const [
       assignedMachineRows,
@@ -273,15 +452,11 @@ export async function register(
       await connection.query(
         `
         SELECT
-          um.user_id,
-          u.email
+          um.user_id
+
         FROM user_machines AS um
 
-        INNER JOIN users AS u
-          ON u.id = um.user_id
-
         WHERE um.machine_id = ?
-          AND u.role = 'client'
 
         LIMIT 1
         `,
@@ -296,13 +471,17 @@ export async function register(
     ) {
       await connection.rollback();
 
+      transactionStarted =
+        false;
+
       return res
         .status(409)
         .json({
-          success: false,
+          success:
+            false,
 
           message:
-            "Cette machine est déjà associée à un client",
+            "Cette machine est déjà associée à un compte",
         });
     }
 
@@ -321,17 +500,11 @@ export async function register(
     //==================================================
 
     /*
-     * IMPORTANT :
+     * Le rôle est volontairement
+     * imposé à client.
      *
-     * Le rôle est imposé ici.
-     *
-     * Même si le navigateur envoie :
-     *
-     * role = manager
-     *
-     * le serveur créera toujours :
-     *
-     * role = client
+     * Le navigateur ne peut donc pas
+     * créer directement un manager.
      */
 
     const [
@@ -346,6 +519,7 @@ export async function register(
           role,
           active
         )
+
         VALUES (
           ?,
           ?,
@@ -367,7 +541,7 @@ export async function register(
       );
 
     //==================================================
-    // ASSOCIATION UTILISATEUR / MACHINE
+    // PREMIÈRE MACHINE DU CLIENT
     //==================================================
 
     await connection.query(
@@ -376,6 +550,7 @@ export async function register(
         user_id,
         machine_id
       )
+
       VALUES (
         ?,
         ?
@@ -388,10 +563,13 @@ export async function register(
     );
 
     //==================================================
-    // VALIDATION TRANSACTION
+    // VALIDATION
     //==================================================
 
     await connection.commit();
+
+    transactionStarted =
+      false;
 
     //==================================================
     // UTILISATEUR
@@ -425,7 +603,8 @@ export async function register(
     return res
       .status(201)
       .json({
-        success: true,
+        success:
+          true,
 
         message:
           "Compte créé avec succès",
@@ -441,15 +620,19 @@ export async function register(
   } catch (
     error
   ) {
-    try {
-      await connection.rollback();
-    } catch (
-      rollbackError
+    if (
+      transactionStarted
     ) {
-      console.error(
-        "Erreur rollback :",
+      try {
+        await connection.rollback();
+      } catch (
         rollbackError
-      );
+      ) {
+        console.error(
+          "Erreur rollback :",
+          rollbackError
+        );
+      }
     }
 
     console.error(
@@ -460,7 +643,8 @@ export async function register(
     return res
       .status(500)
       .json({
-        success: false,
+        success:
+          false,
 
         message:
           "Erreur pendant la création du compte",
@@ -501,7 +685,8 @@ export async function login(
       return res
         .status(400)
         .json({
-          success: false,
+          success:
+            false,
 
           message:
             "Email et mot de passe requis",
@@ -509,7 +694,7 @@ export async function login(
     }
 
     //==================================================
-    // RECHERCHE UTILISATEUR
+    // UTILISATEUR
     //==================================================
 
     const [
@@ -526,8 +711,11 @@ export async function login(
           active,
           created_at,
           updated_at
+
         FROM users
+
         WHERE email = ?
+
         LIMIT 1
         `,
         [
@@ -536,12 +724,14 @@ export async function login(
       );
 
     if (
-      rows.length === 0
+      rows.length ===
+      0
     ) {
       return res
         .status(401)
         .json({
-          success: false,
+          success:
+            false,
 
           message:
             "Email ou mot de passe incorrect",
@@ -563,7 +753,8 @@ export async function login(
       return res
         .status(403)
         .json({
-          success: false,
+          success:
+            false,
 
           message:
             "Ce compte est désactivé",
@@ -571,7 +762,7 @@ export async function login(
     }
 
     //==================================================
-    // VÉRIFICATION RÔLE
+    // RÔLE
     //==================================================
 
     if (
@@ -585,7 +776,8 @@ export async function login(
       return res
         .status(403)
         .json({
-          success: false,
+          success:
+            false,
 
           message:
             "Compte utilisateur invalide",
@@ -608,7 +800,8 @@ export async function login(
       return res
         .status(401)
         .json({
-          success: false,
+          success:
+            false,
 
           message:
             "Email ou mot de passe incorrect",
@@ -619,61 +812,10 @@ export async function login(
     // MACHINES AUTORISÉES
     //==================================================
 
-    let machines = [];
-
-    if (
-      user.role ===
-      "manager"
-    ) {
-      const [
-        machineRows,
-      ] =
-        await pool.query(
-          `
-          SELECT
-            id,
-            name,
-            serial_number,
-            location,
-            description,
-            created_at
-          FROM machines
-          ORDER BY id ASC
-          `
-        );
-
-      machines =
-        machineRows;
-    } else {
-      const [
-        machineRows,
-      ] =
-        await pool.query(
-          `
-          SELECT
-            m.id,
-            m.name,
-            m.serial_number,
-            m.location,
-            m.description,
-            m.created_at
-          FROM user_machines AS um
-
-          INNER JOIN machines AS m
-            ON m.id = um.machine_id
-
-          WHERE um.user_id = ?
-
-          ORDER BY m.id ASC
-          `,
-          [
-            user.id,
-          ]
-        );
-
-      machines =
-        machineRows;
-    }
+    const machines =
+      await getUserMachines(
+        user
+      );
 
     //==================================================
     // TOKEN
@@ -689,7 +831,8 @@ export async function login(
     //==================================================
 
     return res.json({
-      success: true,
+      success:
+        true,
 
       message:
         "Connexion réussie",
@@ -725,7 +868,8 @@ export async function login(
     return res
       .status(500)
       .json({
-        success: false,
+        success:
+          false,
 
         message:
           "Erreur pendant la connexion",
@@ -748,7 +892,8 @@ export async function getCurrentUser(
       return res
         .status(401)
         .json({
-          success: false,
+          success:
+            false,
 
           message:
             "Authentification requise",
@@ -756,7 +901,7 @@ export async function getCurrentUser(
     }
 
     //==================================================
-    // RECHERCHE UTILISATEUR
+    // UTILISATEUR
     //==================================================
 
     const [
@@ -772,8 +917,11 @@ export async function getCurrentUser(
           active,
           created_at,
           updated_at
+
         FROM users
+
         WHERE id = ?
+
         LIMIT 1
         `,
         [
@@ -782,12 +930,14 @@ export async function getCurrentUser(
       );
 
     if (
-      rows.length === 0
+      rows.length ===
+      0
     ) {
       return res
         .status(401)
         .json({
-          success: false,
+          success:
+            false,
 
           message:
             "Utilisateur introuvable",
@@ -809,7 +959,8 @@ export async function getCurrentUser(
       return res
         .status(403)
         .json({
-          success: false,
+          success:
+            false,
 
           message:
             "Ce compte est désactivé",
@@ -817,71 +968,44 @@ export async function getCurrentUser(
     }
 
     //==================================================
-    // MACHINES AUTORISÉES
+    // RÔLE
     //==================================================
 
-    let machines = [];
-
     if (
-      user.role ===
-      "manager"
+      ![
+        "manager",
+        "client",
+      ].includes(
+        user.role
+      )
     ) {
-      const [
-        machineRows,
-      ] =
-        await pool.query(
-          `
-          SELECT
-            id,
-            name,
-            serial_number,
-            location,
-            description,
-            created_at
-          FROM machines
-          ORDER BY id ASC
-          `
-        );
+      return res
+        .status(403)
+        .json({
+          success:
+            false,
 
-      machines =
-        machineRows;
-    } else {
-      const [
-        machineRows,
-      ] =
-        await pool.query(
-          `
-          SELECT
-            m.id,
-            m.name,
-            m.serial_number,
-            m.location,
-            m.description,
-            m.created_at
-          FROM user_machines AS um
-
-          INNER JOIN machines AS m
-            ON m.id = um.machine_id
-
-          WHERE um.user_id = ?
-
-          ORDER BY m.id ASC
-          `,
-          [
-            user.id,
-          ]
-        );
-
-      machines =
-        machineRows;
+          message:
+            "Compte utilisateur invalide",
+        });
     }
+
+    //==================================================
+    // MACHINES
+    //==================================================
+
+    const machines =
+      await getUserMachines(
+        user
+      );
 
     //==================================================
     // RÉPONSE
     //==================================================
 
     return res.json({
-      success: true,
+      success:
+        true,
 
       user: {
         id:
@@ -918,10 +1042,352 @@ export async function getCurrentUser(
     return res
       .status(500)
       .json({
-        success: false,
+        success:
+          false,
 
         message:
           "Erreur pendant la récupération de l'utilisateur",
       });
+  }
+}
+
+//======================================================
+// AJOUTER UNE MACHINE AU COMPTE ACTUEL
+//======================================================
+
+export async function addMachineToCurrentUser(
+  req,
+  res
+) {
+  const connection =
+    await pool.getConnection();
+
+  let transactionStarted =
+    false;
+
+  try {
+    //==================================================
+    // UTILISATEUR CONNECTÉ
+    //==================================================
+
+    const userId =
+      Number(
+        req.user?.id
+      );
+
+    if (
+      !Number.isInteger(
+        userId
+      ) ||
+      userId <= 0
+    ) {
+      return res
+        .status(401)
+        .json({
+          success:
+            false,
+
+          message:
+            "Authentification requise",
+        });
+    }
+
+    if (
+      req.user.role !==
+      "client"
+    ) {
+      return res
+        .status(403)
+        .json({
+          success:
+            false,
+
+          message:
+            "Cette opération est réservée aux comptes clients",
+        });
+    }
+
+    //==================================================
+    // MACHINE
+    //==================================================
+
+    const machineId =
+      normalizeMachineId(
+        req.body?.machineId
+      );
+
+    const serialNumber =
+      normalizeSerialNumber(
+        req.body?.serialNumber ??
+        req.body?.serial_number
+      );
+
+    if (!machineId) {
+      return res
+        .status(400)
+        .json({
+          success:
+            false,
+
+          message:
+            "Identifiant machine invalide",
+        });
+    }
+
+    if (!serialNumber) {
+      return res
+        .status(400)
+        .json({
+          success:
+            false,
+
+          message:
+            "Numéro de série requis",
+        });
+    }
+
+    //==================================================
+    // TRANSACTION
+    //==================================================
+
+    await connection.beginTransaction();
+
+    transactionStarted =
+      true;
+
+    //==================================================
+    // VÉRIFICATION MACHINE
+    //==================================================
+
+    const [
+      machineRows,
+    ] =
+      await connection.query(
+        `
+        SELECT
+          id,
+          name,
+          serial_number,
+          location,
+          description,
+          created_at
+
+        FROM machines
+
+        WHERE id = ?
+          AND serial_number = ?
+
+        LIMIT 1
+
+        FOR UPDATE
+        `,
+        [
+          machineId,
+          serialNumber,
+        ]
+      );
+
+    if (
+      machineRows.length ===
+      0
+    ) {
+      await connection.rollback();
+
+      transactionStarted =
+        false;
+
+      return res
+        .status(404)
+        .json({
+          success:
+            false,
+
+          message:
+            "Machine introuvable ou numéro de série incorrect",
+        });
+    }
+
+    //==================================================
+    // VÉRIFIER SI LE CLIENT POSSÈDE DÉJÀ LA MACHINE
+    //==================================================
+
+    const [
+      currentAssignmentRows,
+    ] =
+      await connection.query(
+        `
+        SELECT
+          user_id,
+          machine_id
+
+        FROM user_machines
+
+        WHERE machine_id = ?
+
+        LIMIT 1
+        `,
+        [
+          machineId,
+        ]
+      );
+
+    if (
+      currentAssignmentRows.length >
+      0
+    ) {
+      const existingUserId =
+        Number(
+          currentAssignmentRows[0]
+            .user_id
+        );
+
+      await connection.rollback();
+
+      transactionStarted =
+        false;
+
+      if (
+        existingUserId ===
+        userId
+      ) {
+        return res
+          .status(409)
+          .json({
+            success:
+              false,
+
+            message:
+              "Cette machine est déjà associée à votre compte",
+          });
+      }
+
+      return res
+        .status(409)
+        .json({
+          success:
+            false,
+
+          message:
+            "Cette machine est déjà associée à un autre compte",
+        });
+    }
+
+    //==================================================
+    // ASSOCIATION
+    //==================================================
+
+    await connection.query(
+      `
+      INSERT INTO user_machines (
+        user_id,
+        machine_id
+      )
+
+      VALUES (
+        ?,
+        ?
+      )
+      `,
+      [
+        userId,
+        machineId,
+      ]
+    );
+
+    //==================================================
+    // VALIDATION
+    //==================================================
+
+    await connection.commit();
+
+    transactionStarted =
+      false;
+
+    //==================================================
+    // LISTE ACTUALISÉE
+    //==================================================
+
+    const machines =
+      await getUserMachines({
+        id:
+          userId,
+
+        role:
+          "client",
+      });
+
+    //==================================================
+    // RÉPONSE
+    //==================================================
+
+    return res
+      .status(201)
+      .json({
+        success:
+          true,
+
+        message:
+          "Machine ajoutée à votre compte",
+
+        machine:
+          machineRows[0],
+
+        machines,
+      });
+  } catch (
+    error
+  ) {
+    if (
+      transactionStarted
+    ) {
+      try {
+        await connection.rollback();
+      } catch (
+        rollbackError
+      ) {
+        console.error(
+          "Erreur rollback ajout machine :",
+          rollbackError
+        );
+      }
+    }
+
+    /*
+     * Sécurité supplémentaire si l'index
+     * UNIQUE(machine_id) de user_machines
+     * intercepte deux associations
+     * simultanées.
+     */
+    if (
+      error?.code ===
+      "ER_DUP_ENTRY"
+    ) {
+      return res
+        .status(409)
+        .json({
+          success:
+            false,
+
+          message:
+            "Cette machine est déjà associée à un compte",
+        });
+    }
+
+    console.error(
+      "Erreur ajout machine au compte :",
+      error
+    );
+
+    return res
+      .status(500)
+      .json({
+        success:
+          false,
+
+        message:
+          "Impossible d'ajouter cette machine au compte",
+      });
+  } finally {
+    connection.release();
   }
 }
