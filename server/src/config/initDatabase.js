@@ -24,11 +24,9 @@ async function columnExists(
       ]
     );
 
-  return (
-    Number(
-      rows[0].total
-    ) > 0
-  );
+  return Number(
+    rows[0].total
+  ) > 0;
 }
 
 //======================================================
@@ -58,6 +56,125 @@ async function addColumnIfMissing(
       `Colonne ajoutée : ${tableName}.${columnName}`
     );
   }
+}
+
+//======================================================
+// VÉRIFICATION DE L'EXISTENCE D'UN INDEX
+//======================================================
+
+async function indexExists(
+  connection,
+  tableName,
+  indexName
+) {
+  const [rows] =
+    await connection.query(
+      `
+      SELECT COUNT(*) AS total
+      FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = ?
+        AND INDEX_NAME = ?
+      `,
+      [
+        tableName,
+        indexName,
+      ]
+    );
+
+  return Number(
+    rows[0].total
+  ) > 0;
+}
+
+//======================================================
+// AJOUT D'UN INDEX UNIQUE SI ABSENT
+//======================================================
+
+async function addUniqueIndexIfMissing(
+  connection,
+  tableName,
+  indexName,
+  columns
+) {
+  const exists =
+    await indexExists(
+      connection,
+      tableName,
+      indexName
+    );
+
+  if (exists) {
+    return;
+  }
+
+  const columnList =
+    columns.join(", ");
+
+  await connection.query(`
+    ALTER TABLE ${tableName}
+    ADD UNIQUE INDEX ${indexName} (${columnList})
+  `);
+
+  console.log(
+    `Index unique ajouté : ${tableName}.${indexName}`
+  );
+}
+
+//======================================================
+// SUPPRESSION D'UN INDEX S'IL EXISTE
+//======================================================
+
+async function removeIndexIfExists(
+  connection,
+  tableName,
+  indexName
+) {
+  const exists =
+    await indexExists(
+      connection,
+      tableName,
+      indexName
+    );
+
+  if (!exists) {
+    return;
+  }
+
+  await connection.query(`
+    ALTER TABLE ${tableName}
+    DROP INDEX ${indexName}
+  `);
+
+  console.log(
+    `Index supprimé : ${tableName}.${indexName}`
+  );
+}
+
+//======================================================
+// SUPPRESSION DU DEFAULT SUR machine_id
+//======================================================
+
+async function removeMachineIdDefault(
+  connection,
+  tableName
+) {
+  const exists =
+    await columnExists(
+      connection,
+      tableName,
+      "machine_id"
+    );
+
+  if (!exists) {
+    return;
+  }
+
+  await connection.query(`
+    ALTER TABLE ${tableName}
+    MODIFY COLUMN machine_id
+    BIGINT UNSIGNED NOT NULL
+  `);
 }
 
 //======================================================
@@ -117,17 +234,11 @@ export async function initializeDatabase() {
     //==================================================
 
     /*
-     * Cette table contient les comptes
-     * permettant de se connecter au Dashboard.
+     * Toute inscription crée un compte client.
      *
-     * Deux rôles :
-     *
-     * manager
-     *   -> accès administratif
-     *
-     * client
-     *   -> consultation des machines
-     *      qui lui sont attribuées
+     * Un manager sera créé en modifiant
+     * manuellement le rôle du compte
+     * dans la base de données.
      */
 
     await connection.query(`
@@ -181,17 +292,22 @@ export async function initializeDatabase() {
     //==================================================
 
     /*
-     * Permet d'attribuer une ou plusieurs
-     * machines à un client.
+     * RÈGLE :
+     *
+     * Un utilisateur peut avoir PLUSIEURS machines.
      *
      * Exemple :
      *
-     * Client A -> Machine 1
+     * Client A
+     *   -> Machine 1
+     *   -> Machine 2
+     *   -> Machine 3
      *
-     * Client B -> Machine 2 + Machine 3
+     * Une machine ne peut cependant appartenir
+     * qu'à UN SEUL client.
      *
-     * Les managers n'ont normalement pas besoin
-     * d'être présents ici car ils auront accès
+     * Les managers n'ont pas besoin d'être
+     * associés ici car ils ont accès
      * à toutes les machines.
      */
 
@@ -211,8 +327,12 @@ export async function initializeDatabase() {
           machine_id
         ),
 
-        INDEX idx_user_machines_machine (
+        UNIQUE KEY unique_user_machine_machine (
           machine_id
+        ),
+
+        INDEX idx_user_machines_user (
+          user_id
         ),
 
         CONSTRAINT fk_user_machines_user
@@ -232,6 +352,38 @@ export async function initializeDatabase() {
     `);
 
     //==================================================
+    // MIGRATION D'UNE ANCIENNE TABLE user_machines
+    //==================================================
+
+    /*
+     * Une version précédente pouvait contenir
+     * un index empêchant un utilisateur
+     * d'avoir plusieurs machines.
+     *
+     * On le supprime s'il existe.
+     */
+
+    await removeIndexIfExists(
+      connection,
+      "user_machines",
+      "unique_user_machine_user"
+    );
+
+    /*
+     * En revanche, une machine reste attribuée
+     * à un seul utilisateur.
+     */
+
+    await addUniqueIndexIfMissing(
+      connection,
+      "user_machines",
+      "unique_user_machine_machine",
+      [
+        "machine_id",
+      ]
+    );
+
+    //==================================================
     // MESURES
     //==================================================
 
@@ -241,7 +393,7 @@ export async function initializeDatabase() {
         AUTO_INCREMENT PRIMARY KEY,
 
         machine_id BIGINT UNSIGNED
-        NOT NULL DEFAULT 1,
+        NOT NULL,
 
         l1_voltage DECIMAL(10,2)
         DEFAULT 0,
@@ -318,16 +470,16 @@ export async function initializeDatabase() {
         created_at TIMESTAMP
         DEFAULT CURRENT_TIMESTAMP,
 
-        INDEX idx_measurements_machine(
+        INDEX idx_measurements_machine (
           machine_id
         ),
 
-        INDEX idx_measurements_created(
+        INDEX idx_measurements_created (
           created_at
         ),
 
         CONSTRAINT fk_measurements_machine
-        FOREIGN KEY(
+        FOREIGN KEY (
           machine_id
         )
         REFERENCES machines(id)
@@ -335,14 +487,19 @@ export async function initializeDatabase() {
       )
     `);
 
+    /*
+     * Anciennes bases :
+     * suppression du DEFAULT 1.
+     */
+
+    await removeMachineIdDefault(
+      connection,
+      "machine_measurements"
+    );
+
     //==================================================
     // COLONNES RÉSERVOIR
     //==================================================
-
-    /*
-     * Ces vérifications permettent de mettre
-     * à jour une ancienne base existante.
-     */
 
     await addColumnIfMissing(
       connection,
@@ -382,7 +539,7 @@ export async function initializeDatabase() {
         AUTO_INCREMENT PRIMARY KEY,
 
         machine_id BIGINT UNSIGNED
-        NOT NULL DEFAULT 1,
+        NOT NULL,
 
         source VARCHAR(50)
         NOT NULL,
@@ -409,22 +566,27 @@ export async function initializeDatabase() {
         created_at TIMESTAMP
         DEFAULT CURRENT_TIMESTAMP,
 
-        INDEX idx_alerts_machine(
+        INDEX idx_alerts_machine (
           machine_id
         ),
 
-        INDEX idx_alerts_created(
+        INDEX idx_alerts_created (
           created_at
         ),
 
         CONSTRAINT fk_alerts_machine
-        FOREIGN KEY(
+        FOREIGN KEY (
           machine_id
         )
         REFERENCES machines(id)
         ON DELETE CASCADE
       )
     `);
+
+    await removeMachineIdDefault(
+      connection,
+      "machine_alerts"
+    );
 
     //==================================================
     // SEUILS
@@ -436,7 +598,7 @@ export async function initializeDatabase() {
         AUTO_INCREMENT PRIMARY KEY,
 
         machine_id BIGINT UNSIGNED
-        NOT NULL DEFAULT 1,
+        NOT NULL,
 
         source VARCHAR(50)
         NOT NULL,
@@ -465,7 +627,7 @@ export async function initializeDatabase() {
         ),
 
         CONSTRAINT fk_thresholds_machine
-        FOREIGN KEY(
+        FOREIGN KEY (
           machine_id
         )
         REFERENCES machines(id)
@@ -473,9 +635,20 @@ export async function initializeDatabase() {
       )
     `);
 
+    await removeMachineIdDefault(
+      connection,
+      "machine_thresholds"
+    );
+
     //==================================================
-    // SEUILS PAR DÉFAUT
+    // SEUILS PAR DÉFAUT MACHINE 1
     //==================================================
+
+    /*
+     * Ici machine_id = 1 est volontaire :
+     * nous initialisons explicitement
+     * la machine principale.
+     */
 
     const defaultThresholds = [
       [
@@ -761,12 +934,12 @@ export async function initializeDatabase() {
         DEFAULT CURRENT_TIMESTAMP
         ON UPDATE CURRENT_TIMESTAMP,
 
-        UNIQUE KEY unique_machine_configuration(
+        UNIQUE KEY unique_machine_configuration (
           machine_id
         ),
 
         CONSTRAINT fk_configuration_machine
-        FOREIGN KEY(
+        FOREIGN KEY (
           machine_id
         )
         REFERENCES machines(id)
@@ -820,6 +993,10 @@ export async function initializeDatabase() {
     );
 
     console.log(
+      "Multi-machines/client      OK"
+    );
+
+    console.log(
       "Table measurements         OK"
     );
 
@@ -846,9 +1023,7 @@ export async function initializeDatabase() {
     console.log(
       "===================================="
     );
-  } catch (
-    error
-  ) {
+  } catch (error) {
     console.error(
       "Erreur pendant l'initialisation de la base :",
       error
