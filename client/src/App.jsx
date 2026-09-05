@@ -5,12 +5,26 @@ import Navbar from "./components/Navbar.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
 import Settings from "./pages/Settings.jsx";
 import Login from "./pages/Login.jsx";
+import Register from "./pages/Register.jsx";
 
 import "./App.css";
+
+//======================================================
+// PAGES DE L'APPLICATION
+//======================================================
 
 const PAGES = {
   DASHBOARD: "dashboard",
   SETTINGS: "settings",
+};
+
+//======================================================
+// PAGES D'AUTHENTIFICATION
+//======================================================
+
+const AUTH_PAGES = {
+  LOGIN: "login",
+  REGISTER: "register",
 };
 
 export default function App() {
@@ -32,6 +46,9 @@ export default function App() {
   const [authLoading, setAuthLoading] =
     useState(Boolean(token));
 
+  const [authPage, setAuthPage] =
+    useState(AUTH_PAGES.LOGIN);
+
   //====================================================
   // NAVIGATION
   //====================================================
@@ -41,7 +58,7 @@ export default function App() {
   );
 
   //====================================================
-  // VÉRIFICATION DE LA SESSION
+  // VÉRIFICATION DE LA SESSION AU DÉMARRAGE
   //====================================================
 
   useEffect(() => {
@@ -50,6 +67,7 @@ export default function App() {
       setMachines([]);
       setSelectedMachineId(null);
       setAuthLoading(false);
+
       return;
     }
 
@@ -68,22 +86,28 @@ export default function App() {
           }
         );
 
+        const data = await response.json();
+
         if (!response.ok) {
           throw new Error(
-            "Session invalide"
+            data?.message ||
+              "Session invalide."
           );
         }
 
-        const data =
-          await response.json();
-
         const currentUser =
-          data.user || null;
+          data?.user || null;
 
         const currentMachines =
-          Array.isArray(data.machines)
+          Array.isArray(data?.machines)
             ? data.machines
             : [];
+
+        if (!currentUser) {
+          throw new Error(
+            "Utilisateur introuvable."
+          );
+        }
 
         setUser(currentUser);
 
@@ -113,9 +137,18 @@ export default function App() {
         );
 
         setToken(null);
+
         setUser(null);
+
         setMachines([]);
-        setSelectedMachineId(null);
+
+        setSelectedMachineId(
+          null
+        );
+
+        setAuthPage(
+          AUTH_PAGES.LOGIN
+        );
       } finally {
         setAuthLoading(false);
       }
@@ -125,52 +158,95 @@ export default function App() {
   }, [token]);
 
   //====================================================
-  // CONNEXION
+  // TRAITEMENT APRÈS CONNEXION / INSCRIPTION
   //====================================================
 
-  function handleLogin(
+  function handleAuthentication(
     authData
   ) {
     const newToken =
       authData?.token;
 
     if (!newToken) {
+      console.error(
+        "Aucun token reçu."
+      );
+
       return;
     }
 
+    const authenticatedUser =
+      authData?.user || null;
+
+    const authenticatedMachines =
+      Array.isArray(
+        authData?.machines
+      )
+        ? authData.machines
+        : [];
+
+    // Sauvegarde du JWT
     localStorage.setItem(
       "authToken",
       newToken
     );
 
+    // Mise à jour de la session
     setToken(newToken);
 
-    if (authData.user) {
-      setUser(
-        authData.user
-      );
-    }
+    setUser(
+      authenticatedUser
+    );
 
+    setMachines(
+      authenticatedMachines
+    );
+
+    // Sélection automatique de la première machine
     if (
-      Array.isArray(
-        authData.machines
-      )
+      authenticatedMachines.length >
+      0
     ) {
-      setMachines(
-        authData.machines
+      setSelectedMachineId(
+        authenticatedMachines[0].id
       );
-
-      if (
-        authData.machines.length > 0
-      ) {
-        setSelectedMachineId(
-          authData.machines[0].id
-        );
-      }
+    } else {
+      setSelectedMachineId(
+        null
+      );
     }
 
+    // Retour au dashboard
     setCurrentPage(
       PAGES.DASHBOARD
+    );
+
+    setAuthPage(
+      AUTH_PAGES.LOGIN
+    );
+  }
+
+  //====================================================
+  // CONNEXION
+  //====================================================
+
+  function handleLogin(
+    authData
+  ) {
+    handleAuthentication(
+      authData
+    );
+  }
+
+  //====================================================
+  // INSCRIPTION
+  //====================================================
+
+  function handleRegister(
+    authData
+  ) {
+    handleAuthentication(
+      authData
     );
   }
 
@@ -196,6 +272,10 @@ export default function App() {
     setCurrentPage(
       PAGES.DASHBOARD
     );
+
+    setAuthPage(
+      AUTH_PAGES.LOGIN
+    );
   }
 
   //====================================================
@@ -217,6 +297,21 @@ export default function App() {
       return;
     }
 
+    const machineExists =
+      machines.some(
+        (machine) =>
+          Number(machine.id) ===
+          parsedMachineId
+      );
+
+    if (!machineExists) {
+      console.error(
+        "Machine non autorisée."
+      );
+
+      return;
+    }
+
     setSelectedMachineId(
       parsedMachineId
     );
@@ -227,7 +322,7 @@ export default function App() {
   }
 
   //====================================================
-  // NAVIGATION
+  // NAVIGATION DASHBOARD / PARAMÈTRES
   //====================================================
 
   function handleNavigate(
@@ -261,45 +356,90 @@ export default function App() {
   }
 
   //====================================================
-  // CHARGEMENT
+  // NAVIGATION AUTHENTIFICATION
+  //====================================================
+
+  function openLogin() {
+    setAuthPage(
+      AUTH_PAGES.LOGIN
+    );
+  }
+
+  function openRegister() {
+    setAuthPage(
+      AUTH_PAGES.REGISTER
+    );
+  }
+
+  //====================================================
+  // CHARGEMENT DE LA SESSION
   //====================================================
 
   if (authLoading) {
     return (
       <div className="app-loading">
-        Chargement...
+        Chargement de votre session...
       </div>
     );
   }
 
   //====================================================
-  // NON CONNECTÉ
+  // UTILISATEUR NON CONNECTÉ
   //====================================================
 
   if (!token || !user) {
+    if (
+      authPage ===
+      AUTH_PAGES.REGISTER
+    ) {
+      return (
+        <Register
+          onRegister={
+            handleRegister
+          }
+
+          onBackToLogin={
+            openLogin
+          }
+        />
+      );
+    }
+
     return (
       <Login
-        onLogin={handleLogin}
+        onLogin={
+          handleLogin
+        }
+
+        onOpenRegister={
+          openRegister
+        }
       />
     );
   }
 
   //====================================================
-  // APPLICATION
+  // APPLICATION CONNECTÉE
   //====================================================
 
   return (
     <div className="app-shell">
       <Navbar
-        activePage={currentPage}
+        activePage={
+          currentPage
+        }
 
         onNavigate={
           handleNavigate
         }
 
-        user={user}
+        user={
+          user
+        }
 
-        machines={machines}
+        machines={
+          machines
+        }
 
         selectedMachineId={
           selectedMachineId
@@ -322,9 +462,13 @@ export default function App() {
               openDashboard
             }
 
-            token={token}
+            token={
+              token
+            }
 
-            user={user}
+            user={
+              user
+            }
 
             machineId={
               selectedMachineId
@@ -336,9 +480,13 @@ export default function App() {
               openSettings
             }
 
-            token={token}
+            token={
+              token
+            }
 
-            user={user}
+            user={
+              user
+            }
 
             machines={
               machines
