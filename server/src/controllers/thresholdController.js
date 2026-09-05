@@ -4,6 +4,10 @@ import {
   deleteThreshold,
 } from "../services/thresholdService.js";
 
+//======================================================
+// OUTILS
+//======================================================
+
 function parseOptionalNumber(value) {
   if (
     value === undefined ||
@@ -20,25 +24,53 @@ function parseOptionalNumber(value) {
     : null;
 }
 
+//======================================================
+// VALIDATION MACHINE
+//======================================================
+
+function parseMachineId(value) {
+  const machineId = Number(value);
+
+  if (
+    !Number.isInteger(machineId) ||
+    machineId <= 0
+  ) {
+    return null;
+  }
+
+  return machineId;
+}
+
+//======================================================
+// RÉCUPÉRER LES SEUILS
+//======================================================
+
 export async function getAllThresholds(req, res) {
   try {
-    const machineId = req.query.machineId
-      ? Number(req.query.machineId)
-      : 1;
+    /*
+     * requireMachineAccess a déjà :
+     *
+     * - vérifié le JWT
+     * - vérifié le rôle
+     * - vérifié que le client possède la machine
+     * - placé l'identifiant dans req.machineId
+     */
 
-    if (
-      !Number.isInteger(machineId) ||
-      machineId <= 0
-    ) {
+    const machineId =
+      parseMachineId(req.machineId);
+
+    if (!machineId) {
       return res.status(400).json({
         success: false,
-        message: "Identifiant de machine invalide",
+        message:
+          "Identifiant de machine invalide",
       });
     }
 
-    const thresholds = await getThresholds(machineId);
+    const thresholds =
+      await getThresholds(machineId);
 
-    res.json({
+    return res.json({
       success: true,
       machineId,
       count: thresholds.length,
@@ -50,7 +82,7 @@ export async function getAllThresholds(req, res) {
       error
     );
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message:
         "Impossible de récupérer les seuils",
@@ -59,10 +91,17 @@ export async function getAllThresholds(req, res) {
   }
 }
 
-export async function createOrUpdateThreshold(req, res) {
+//======================================================
+// CRÉER OU MODIFIER UN SEUIL
+//======================================================
+
+export async function createOrUpdateThreshold(
+  req,
+  res
+) {
   try {
     const {
-      machineId = 1,
+      machineId,
       source,
       parameterName,
       minimumValue,
@@ -72,19 +111,45 @@ export async function createOrUpdateThreshold(req, res) {
       unit,
     } = req.body;
 
-    const parsedMachineId = Number(machineId);
+    //==================================================
+    // MACHINE
+    //==================================================
 
-    if (
-      !Number.isInteger(parsedMachineId) ||
-      parsedMachineId <= 0
-    ) {
+    /*
+     * Cette route est réservée au manager.
+     *
+     * Le manager doit explicitement préciser
+     * la machine à modifier.
+     *
+     * On ne met volontairement PAS
+     * machineId = 1 par défaut.
+     */
+
+    const parsedMachineId =
+      parseMachineId(machineId);
+
+    if (!parsedMachineId) {
       return res.status(400).json({
         success: false,
-        message: "Identifiant de machine invalide",
+        message:
+          "Identifiant de machine invalide",
       });
     }
 
-    if (!source || !parameterName) {
+    //==================================================
+    // SOURCE / PARAMÈTRE
+    //==================================================
+
+    const parsedSource =
+      String(source ?? "").trim();
+
+    const parsedParameterName =
+      String(parameterName ?? "").trim();
+
+    if (
+      !parsedSource ||
+      !parsedParameterName
+    ) {
       return res.status(400).json({
         success: false,
         message:
@@ -92,17 +157,33 @@ export async function createOrUpdateThreshold(req, res) {
       });
     }
 
+    //==================================================
+    // VALEURS
+    //==================================================
+
     const parsedMinimum =
-      parseOptionalNumber(minimumValue);
+      parseOptionalNumber(
+        minimumValue
+      );
 
     const parsedMaximum =
-      parseOptionalNumber(maximumValue);
+      parseOptionalNumber(
+        maximumValue
+      );
 
     const parsedWarning =
-      parseOptionalNumber(warningValue);
+      parseOptionalNumber(
+        warningValue
+      );
 
     const parsedCritical =
-      parseOptionalNumber(criticalValue);
+      parseOptionalNumber(
+        criticalValue
+      );
+
+    //==================================================
+    // VALIDATION MINIMUM
+    //==================================================
 
     if (
       minimumValue !== undefined &&
@@ -112,9 +193,14 @@ export async function createOrUpdateThreshold(req, res) {
     ) {
       return res.status(400).json({
         success: false,
-        message: "minimumValue est invalide",
+        message:
+          "minimumValue est invalide",
       });
     }
+
+    //==================================================
+    // VALIDATION MAXIMUM
+    //==================================================
 
     if (
       maximumValue !== undefined &&
@@ -124,9 +210,14 @@ export async function createOrUpdateThreshold(req, res) {
     ) {
       return res.status(400).json({
         success: false,
-        message: "maximumValue est invalide",
+        message:
+          "maximumValue est invalide",
       });
     }
+
+    //==================================================
+    // VALIDATION WARNING
+    //==================================================
 
     if (
       warningValue !== undefined &&
@@ -136,9 +227,14 @@ export async function createOrUpdateThreshold(req, res) {
     ) {
       return res.status(400).json({
         success: false,
-        message: "warningValue est invalide",
+        message:
+          "warningValue est invalide",
       });
     }
+
+    //==================================================
+    // VALIDATION CRITICAL
+    //==================================================
 
     if (
       criticalValue !== undefined &&
@@ -148,9 +244,14 @@ export async function createOrUpdateThreshold(req, res) {
     ) {
       return res.status(400).json({
         success: false,
-        message: "criticalValue est invalide",
+        message:
+          "criticalValue est invalide",
       });
     }
+
+    //==================================================
+    // COHÉRENCE MIN / MAX
+    //==================================================
 
     if (
       parsedMinimum !== null &&
@@ -164,29 +265,83 @@ export async function createOrUpdateThreshold(req, res) {
       });
     }
 
-    const threshold = await saveThreshold({
-      machineId: parsedMachineId,
-      source: String(source).trim(),
-      parameterName: String(parameterName).trim(),
-      minimumValue: parsedMinimum,
-      maximumValue: parsedMaximum,
-      warningValue: parsedWarning,
-      criticalValue: parsedCritical,
-      unit: unit
-        ? String(unit).trim()
-        : null,
-    });
+    //==================================================
+    // UNITÉ
+    //==================================================
 
-    const io = req.app.get("io");
+    const parsedUnit =
+      unit !== undefined &&
+      unit !== null &&
+      String(unit).trim() !== ""
+        ? String(unit).trim()
+        : null;
+
+    //==================================================
+    // ENREGISTREMENT
+    //==================================================
+
+    const threshold =
+      await saveThreshold({
+        machineId:
+          parsedMachineId,
+
+        source:
+          parsedSource,
+
+        parameterName:
+          parsedParameterName,
+
+        minimumValue:
+          parsedMinimum,
+
+        maximumValue:
+          parsedMaximum,
+
+        warningValue:
+          parsedWarning,
+
+        criticalValue:
+          parsedCritical,
+
+        unit:
+          parsedUnit,
+      });
+
+    //==================================================
+    // SOCKET.IO
+    //==================================================
+
+    const io =
+      req.app.get("io");
 
     if (io) {
-      io.emit("threshold:update", threshold);
+      /*
+       * On garde l'événement actuel pour
+       * compatibilité avec le Dashboard.
+       *
+       * Lors de la sécurisation finale
+       * de Socket.IO, nous limiterons
+       * cet événement à la room machine.
+       */
+
+      io.emit(
+        "threshold:update",
+        threshold
+      );
     }
 
-    res.status(200).json({
+    //==================================================
+    // RÉPONSE
+    //==================================================
+
+    return res.status(200).json({
       success: true,
-      message: "Seuil enregistré",
-      data: threshold,
+      message:
+        "Seuil enregistré",
+      machineId:
+        parsedMachineId,
+      data:
+        threshold,
     });
   } catch (error) {
     console.error(
@@ -194,7 +349,7 @@ export async function createOrUpdateThreshold(req, res) {
       error
     );
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message:
         "Impossible d’enregistrer le seuil",
@@ -203,55 +358,102 @@ export async function createOrUpdateThreshold(req, res) {
   }
 }
 
-export async function removeThreshold(req, res) {
+//======================================================
+// SUPPRIMER UN SEUIL
+//======================================================
+
+export async function removeThreshold(
+  req,
+  res
+) {
   try {
-    const id = Number(req.params.id);
+    //==================================================
+    // IDENTIFIANT DU SEUIL
+    //==================================================
 
-    const machineId = req.query.machineId
-      ? Number(req.query.machineId)
-      : 1;
-
-    if (!Number.isInteger(id) || id <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Identifiant de seuil invalide",
-      });
-    }
+    const id =
+      Number(req.params.id);
 
     if (
-      !Number.isInteger(machineId) ||
-      machineId <= 0
+      !Number.isInteger(id) ||
+      id <= 0
     ) {
       return res.status(400).json({
         success: false,
-        message: "Identifiant de machine invalide",
+        message:
+          "Identifiant de seuil invalide",
       });
     }
 
-    const deleted = await deleteThreshold(
-      id,
-      machineId
-    );
+    //==================================================
+    // MACHINE
+    //==================================================
+
+    /*
+     * DELETE est réservé au manager.
+     *
+     * La machine doit être explicitement
+     * indiquée :
+     *
+     * DELETE /api/thresholds/5?machineId=2
+     */
+
+    const machineId =
+      parseMachineId(
+        req.query.machineId
+      );
+
+    if (!machineId) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Identifiant de machine invalide",
+      });
+    }
+
+    //==================================================
+    // SUPPRESSION
+    //==================================================
+
+    const deleted =
+      await deleteThreshold(
+        id,
+        machineId
+      );
 
     if (!deleted) {
       return res.status(404).json({
         success: false,
-        message: "Seuil introuvable",
+        message:
+          "Seuil introuvable",
       });
     }
 
-    const io = req.app.get("io");
+    //==================================================
+    // SOCKET.IO
+    //==================================================
+
+    const io =
+      req.app.get("io");
 
     if (io) {
-      io.emit("threshold:delete", {
-        id,
-        machineId,
-      });
+      io.emit(
+        "threshold:delete",
+        {
+          id,
+          machineId,
+        }
+      );
     }
 
-    res.json({
+    //==================================================
+    // RÉPONSE
+    //==================================================
+
+    return res.json({
       success: true,
-      message: "Seuil supprimé",
+      message:
+        "Seuil supprimé",
       id,
       machineId,
     });
@@ -261,7 +463,7 @@ export async function removeThreshold(req, res) {
       error
     );
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message:
         "Impossible de supprimer le seuil",
