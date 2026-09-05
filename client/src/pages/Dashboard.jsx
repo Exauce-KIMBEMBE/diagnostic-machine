@@ -21,6 +21,10 @@ import PowerChart from "../components/PowerChart.jsx";
 
 import { useMachineData } from "../hooks/useMachineData.js";
 
+//======================================================
+// OUTILS
+//======================================================
+
 function toNumber(value) {
   const number = Number(value);
 
@@ -52,6 +56,44 @@ function formatDate(value) {
 
   return date.toLocaleString("fr-FR");
 }
+
+//======================================================
+// MACHINE
+//======================================================
+
+function getMachineId(machine) {
+  return (
+    machine?.id ??
+    machine?.machineId ??
+    machine?.machine_id ??
+    null
+  );
+}
+
+function getMachineName(machine) {
+  return (
+    machine?.name ??
+    machine?.machineName ??
+    machine?.machine_name ??
+    machine?.label ??
+    null
+  );
+}
+
+function getMachineSerial(machine) {
+  return (
+    machine?.serial_number ??
+    machine?.serialNumber ??
+    machine?.serial ??
+    machine?.code ??
+    machine?.identifier ??
+    null
+  );
+}
+
+//======================================================
+// ALERTES / ÉTAT GLOBAL
+//======================================================
 
 function getAlertLevel(alert) {
   return String(
@@ -126,6 +168,10 @@ const globalStatusLabels = {
   critical: "Anomalie critique",
   offline: "Machine hors ligne",
 };
+
+//======================================================
+// MÉTRIQUES
+//======================================================
 
 const availableMetrics = [
   {
@@ -222,9 +268,25 @@ const chartTypes = [
   },
 ];
 
+//======================================================
+// DASHBOARD
+//======================================================
+
 export default function Dashboard({
   onOpenSettings,
+
+  token,
+
+  user,
+
+  machines = [],
+
+  machineId,
 }) {
+  //====================================================
+  // DONNÉES MACHINE
+  //====================================================
+
   const {
     machine,
     history,
@@ -234,7 +296,44 @@ export default function Dashboard({
     loading,
     error,
     reload,
-  } = useMachineData(1);
+  } = useMachineData(
+    machineId,
+    token
+  );
+
+  //====================================================
+  // SÉLECTION MACHINE
+  //====================================================
+
+  const safeMachines =
+    Array.isArray(machines)
+      ? machines
+      : [];
+
+  const selectedMachine =
+    safeMachines.find(
+      (item) =>
+        String(
+          getMachineId(item)
+        ) ===
+        String(machineId)
+    ) ?? null;
+
+  //====================================================
+  // RÔLE
+  //====================================================
+
+  const userRole =
+    String(
+      user?.role ?? "client"
+    ).toLowerCase();
+
+  const isManager =
+    userRole === "manager";
+
+  //====================================================
+  // GRAPHIQUE
+  //====================================================
 
   const [
     selectedLines,
@@ -257,6 +356,10 @@ export default function Dashboard({
     setChartType,
   ] = useState("line");
 
+  //====================================================
+  // DONNÉES MESURÉES
+  //====================================================
+
   const lines =
     machine?.lines ?? {};
 
@@ -274,6 +377,36 @@ export default function Dashboard({
     String(
       machine?.status ?? ""
     ).toLowerCase() === "online";
+
+  //====================================================
+  // IDENTITÉ MACHINE
+  //====================================================
+
+  const displayMachineId =
+    getMachineId(
+      selectedMachine
+    ) ??
+    machine?.id ??
+    machineId;
+
+  const displayMachineName =
+    getMachineName(
+      selectedMachine
+    ) ??
+    machine?.name ??
+    "Machine";
+
+  const displayMachineSerial =
+    getMachineSerial(
+      selectedMachine
+    ) ??
+    machine?.serial_number ??
+    machine?.serialNumber ??
+    "--";
+
+  //====================================================
+  // PUISSANCE
+  //====================================================
 
   const line1Power =
     toNumber(
@@ -295,6 +428,10 @@ export default function Dashboard({
     line2Power +
     line3Power;
 
+  //====================================================
+  // ALERTES
+  //====================================================
+
   const safeAlerts =
     Array.isArray(alerts)
       ? alerts
@@ -309,6 +446,10 @@ export default function Dashboard({
       flow,
       tank,
     });
+
+  //====================================================
+  // SÉLECTION DES LIGNES
+  //====================================================
 
   function toggleLine(lineId) {
     setSelectedLines(
@@ -340,6 +481,10 @@ export default function Dashboard({
       }
     );
   }
+
+  //====================================================
+  // SÉLECTION DES MÉTRIQUES
+  //====================================================
 
   function toggleMetric(
     metricId
@@ -374,8 +519,37 @@ export default function Dashboard({
     );
   }
 
+  //====================================================
+  // AUCUNE MACHINE
+  //====================================================
+
+  if (!machineId) {
+    return (
+      <main className="dashboard-page">
+        <section className="dashboard-error">
+          <strong>
+            Aucune machine associée
+          </strong>
+
+          <p>
+            Votre compte ne possède
+            actuellement aucune machine.
+          </p>
+        </section>
+      </main>
+    );
+  }
+
+  //====================================================
+  // AFFICHAGE
+  //====================================================
+
   return (
     <main className="dashboard-page">
+      {/* ==============================================
+          EN-TÊTE MACHINE
+      ============================================== */}
+
       <header className="dashboard-machine-header">
         <div className="machine-selector">
           <span>
@@ -383,8 +557,7 @@ export default function Dashboard({
           </span>
 
           <strong>
-            {machine?.name ??
-              "Atelier de production"}
+            {displayMachineName}
           </strong>
         </div>
 
@@ -394,25 +567,24 @@ export default function Dashboard({
           </span>
 
           <strong>
-            {machine?.id
+            {displayMachineId
               ? String(
-                  machine.id
+                  displayMachineId
                 ).padStart(
                   3,
                   "0"
                 )
-              : "001"}
+              : "--"}
           </strong>
         </div>
 
         <div className="machine-name">
           <span>
-            Nom de la machine
+            Numéro de série
           </span>
 
           <strong>
-            {machine?.name ??
-              "Atelier de production"}
+            {displayMachineSerial}
           </strong>
         </div>
 
@@ -452,22 +624,32 @@ export default function Dashboard({
             />
           </button>
 
-          <button
-            type="button"
-            className="settings-button"
-            onClick={
-              onOpenSettings
-            }
-            title="Ouvrir les paramètres"
-          >
-            <Settings size={18} />
-          </button>
+          {isManager && (
+            <button
+              type="button"
+              className="settings-button"
+              onClick={
+                onOpenSettings
+              }
+              title="Ouvrir les paramètres"
+            >
+              <Settings
+                size={18}
+              />
+            </button>
+          )}
         </div>
       </header>
 
+      {/* ==============================================
+          CHARGEMENT
+      ============================================== */}
+
       {loading && (
         <section className="dashboard-message">
-          <Activity size={26} />
+          <Activity
+            size={26}
+          />
 
           <p>
             Chargement des données...
@@ -475,13 +657,19 @@ export default function Dashboard({
         </section>
       )}
 
+      {/* ==============================================
+          ERREUR
+      ============================================== */}
+
       {error && (
         <section className="dashboard-error">
           <strong>
             Erreur de chargement
           </strong>
 
-          <p>{error}</p>
+          <p>
+            {error}
+          </p>
 
           <button
             type="button"
@@ -495,6 +683,10 @@ export default function Dashboard({
 
       <div className="dashboard-workspace">
         <div className="dashboard-main-content">
+          {/* ==========================================
+              ÉTAT GLOBAL
+          ========================================== */}
+
           <section
             className={`machine-summary machine-summary-${globalStatus}`}
           >
@@ -581,6 +773,10 @@ export default function Dashboard({
             </div>
           </section>
 
+          {/* ==========================================
+              LIGNES ÉLECTRIQUES
+          ========================================== */}
+
           <section className="lines-grid">
             <div className="line-wrapper line-wrapper-1">
               <LineCard
@@ -613,6 +809,10 @@ export default function Dashboard({
             </div>
           </section>
 
+          {/* ==========================================
+              CAPTEURS
+          ========================================== */}
+
           <section className="sensors-grid">
             <SensorCard
               title="Température"
@@ -624,7 +824,9 @@ export default function Dashboard({
                 temperature.status ??
                 "offline"
               }
-              icon={Thermometer}
+              icon={
+                Thermometer
+              }
               digits={1}
             />
 
@@ -638,7 +840,9 @@ export default function Dashboard({
                 flow.status ??
                 "offline"
               }
-              icon={Droplets}
+              icon={
+                Droplets
+              }
               digits={2}
             />
 
@@ -652,7 +856,9 @@ export default function Dashboard({
                 tank.status ??
                 "offline"
               }
-              icon={Gauge}
+              icon={
+                Gauge
+              }
               digits={1}
             />
 
@@ -666,7 +872,9 @@ export default function Dashboard({
                 tank.status ??
                 "offline"
               }
-              icon={Droplets}
+              icon={
+                Droplets
+              }
               digits={1}
             />
 
@@ -680,7 +888,9 @@ export default function Dashboard({
                 tank.status ??
                 "offline"
               }
-              icon={Gauge}
+              icon={
+                Gauge
+              }
               digits={1}
             />
 
@@ -698,6 +908,10 @@ export default function Dashboard({
               </strong>
             </article>
           </section>
+
+          {/* ==========================================
+              PUISSANCE
+          ========================================== */}
 
           <section className="power-summary">
             <div className="panel-header">
@@ -771,7 +985,11 @@ export default function Dashboard({
           </section>
         </div>
 
-               <aside className="analysis-panel">
+        {/* ==============================================
+            ANALYSE
+        ============================================== */}
+
+        <aside className="analysis-panel">
           <div className="analysis-panel-header">
             <div>
               <span>
@@ -783,8 +1001,14 @@ export default function Dashboard({
               </h2>
             </div>
 
-            <BarChart3 size={22} />
+            <BarChart3
+              size={22}
+            />
           </div>
+
+          {/* ============================================
+              PÉRIODE
+          ============================================ */}
 
           <section className="analysis-section">
             <div className="analysis-date-selector">
@@ -798,8 +1022,7 @@ export default function Dashboard({
                   event
                 ) =>
                   setPeriod(
-                    event.target
-                      .value
+                    event.target.value
                   )
                 }
               >
@@ -856,6 +1079,10 @@ export default function Dashboard({
             </div>
           </section>
 
+          {/* ============================================
+              LIGNES
+          ============================================ */}
+
           <section className="analysis-section">
             <h3>
               Sélection des lignes
@@ -876,9 +1103,11 @@ export default function Dashboard({
                   >
                     <input
                       type="checkbox"
-                      checked={selectedLines.includes(
-                        lineId
-                      )}
+                      checked={
+                        selectedLines.includes(
+                          lineId
+                        )
+                      }
                       onChange={() =>
                         toggleLine(
                           lineId
@@ -899,6 +1128,10 @@ export default function Dashboard({
             </div>
           </section>
 
+          {/* ============================================
+              PARAMÈTRES GRAPHIQUE
+          ============================================ */}
+
           <section className="analysis-section">
             <h3>
               Paramètres
@@ -915,9 +1148,11 @@ export default function Dashboard({
                   >
                     <input
                       type="checkbox"
-                      checked={selectedMetrics.includes(
-                        metric.id
-                      )}
+                      checked={
+                        selectedMetrics.includes(
+                          metric.id
+                        )
+                      }
                       onChange={() =>
                         toggleMetric(
                           metric.id
@@ -939,6 +1174,10 @@ export default function Dashboard({
               )}
             </div>
           </section>
+
+          {/* ============================================
+              TYPE GRAPHIQUE
+          ============================================ */}
 
           <section className="analysis-section">
             <h3>
@@ -974,10 +1213,18 @@ export default function Dashboard({
             </div>
           </section>
 
+          {/* ============================================
+              GRAPHIQUE
+          ============================================ */}
+
           <section className="analysis-chart-container">
             <PowerChart
-              history={history}
-              period={period}
+              history={
+                history
+              }
+              period={
+                period
+              }
               onPeriodChange={
                 setPeriod
               }
@@ -992,6 +1239,10 @@ export default function Dashboard({
               }
             />
           </section>
+
+          {/* ============================================
+              RÉSULTATS
+          ============================================ */}
 
           <section className="analysis-line-results">
             <article className="analysis-result result-line-1">
@@ -1031,6 +1282,10 @@ export default function Dashboard({
             </article>
           </section>
 
+          {/* ============================================
+              EXPORT
+          ============================================ */}
+
           <section className="analysis-export">
             <h3>
               Exporter les données
@@ -1043,6 +1298,7 @@ export default function Dashboard({
                 <Download
                   size={16}
                 />
+
                 PDF
               </button>
 
@@ -1052,6 +1308,7 @@ export default function Dashboard({
                 <Sheet
                   size={16}
                 />
+
                 Excel
               </button>
 
@@ -1061,6 +1318,7 @@ export default function Dashboard({
                 <Download
                   size={16}
                 />
+
                 CSV
               </button>
 
@@ -1070,6 +1328,7 @@ export default function Dashboard({
                 <Image
                   size={16}
                 />
+
                 Image
               </button>
             </div>
@@ -1078,4 +1337,4 @@ export default function Dashboard({
       </div>
     </main>
   );
-} 
+}
