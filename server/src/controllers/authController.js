@@ -32,6 +32,18 @@ function normalizeSerialNumber(
 
 //======================================================
 
+function normalizeActivationCode(
+  activationCode
+) {
+  return String(
+    activationCode ?? ""
+  )
+    .trim()
+    .toUpperCase();
+}
+
+//======================================================
+
 function normalizeMachineId(
   value
 ) {
@@ -129,7 +141,6 @@ async function getUserMachines(
           description,
           created_at
         FROM machines
-
         ORDER BY id ASC
         `
       );
@@ -210,6 +221,12 @@ export async function register(
         req.body?.serial_number
       );
 
+    const activationCode =
+      normalizeActivationCode(
+        req.body?.activationCode ??
+        req.body?.activation_code
+      );
+
     //==================================================
     // VALIDATION
     //==================================================
@@ -218,9 +235,7 @@ export async function register(
       return res
         .status(400)
         .json({
-          success:
-            false,
-
+          success: false,
           message:
             "Nom requis",
         });
@@ -230,9 +245,7 @@ export async function register(
       return res
         .status(400)
         .json({
-          success:
-            false,
-
+          success: false,
           message:
             "Email requis",
         });
@@ -242,24 +255,19 @@ export async function register(
       return res
         .status(400)
         .json({
-          success:
-            false,
-
+          success: false,
           message:
             "Mot de passe requis",
         });
     }
 
     if (
-      password.length <
-      8
+      password.length < 8
     ) {
       return res
         .status(400)
         .json({
-          success:
-            false,
-
+          success: false,
           message:
             "Le mot de passe doit contenir au moins 8 caractères",
         });
@@ -269,9 +277,7 @@ export async function register(
       return res
         .status(400)
         .json({
-          success:
-            false,
-
+          success: false,
           message:
             "Identifiant machine invalide",
         });
@@ -281,11 +287,19 @@ export async function register(
       return res
         .status(400)
         .json({
-          success:
-            false,
-
+          success: false,
           message:
             "Numéro de série de la machine requis",
+        });
+    }
+
+    if (!activationCode) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message:
+            "Code d'activation de la machine requis",
         });
     }
 
@@ -309,11 +323,8 @@ export async function register(
         `
         SELECT
           id
-
         FROM users
-
         WHERE email = ?
-
         LIMIT 1
         `,
         [
@@ -322,8 +333,7 @@ export async function register(
       );
 
     if (
-      existingUsers.length >
-      0
+      existingUsers.length > 0
     ) {
       await connection.rollback();
 
@@ -333,17 +343,23 @@ export async function register(
       return res
         .status(409)
         .json({
-          success:
-            false,
-
+          success: false,
           message:
             "Un compte existe déjà avec cet email",
         });
     }
 
     //==================================================
-    // VÉRIFICATION MACHINE + NUMÉRO DE SÉRIE
+    // MACHINE + NUMÉRO DE SÉRIE + CODE D'ACTIVATION
     //==================================================
+
+    /*
+     * On verrouille directement la machine
+     * pendant la vérification.
+     *
+     * Ainsi deux comptes ne peuvent pas
+     * réclamer la même machine simultanément.
+     */
 
     const [
       machineRows,
@@ -362,56 +378,7 @@ export async function register(
 
         WHERE id = ?
           AND serial_number = ?
-
-        LIMIT 1
-        `,
-        [
-          machineId,
-          serialNumber,
-        ]
-      );
-
-    if (
-      machineRows.length ===
-      0
-    ) {
-      await connection.rollback();
-
-      transactionStarted =
-        false;
-
-      return res
-        .status(404)
-        .json({
-          success:
-            false,
-
-          message:
-            "Machine introuvable ou numéro de série incorrect",
-        });
-    }
-
-    //==================================================
-    // VERROUILLAGE DE LA MACHINE
-    //==================================================
-
-    /*
-     * FOR UPDATE permet d'éviter que deux
-     * comptes essaient d'associer la même
-     * machine exactement au même moment.
-     */
-
-    const [
-      lockedMachineRows,
-    ] =
-      await connection.query(
-        `
-        SELECT
-          id
-
-        FROM machines
-
-        WHERE id = ?
+          AND activation_code = ?
 
         LIMIT 1
 
@@ -419,12 +386,13 @@ export async function register(
         `,
         [
           machineId,
+          serialNumber,
+          activationCode,
         ]
       );
 
     if (
-      lockedMachineRows.length ===
-      0
+      machineRows.length === 0
     ) {
       await connection.rollback();
 
@@ -434,11 +402,9 @@ export async function register(
       return res
         .status(404)
         .json({
-          success:
-            false,
-
+          success: false,
           message:
-            "Machine introuvable",
+            "Machine introuvable ou informations d'activation incorrectes",
         });
     }
 
@@ -452,11 +418,11 @@ export async function register(
       await connection.query(
         `
         SELECT
-          um.user_id
+          user_id
 
-        FROM user_machines AS um
+        FROM user_machines
 
-        WHERE um.machine_id = ?
+        WHERE machine_id = ?
 
         LIMIT 1
         `,
@@ -466,8 +432,7 @@ export async function register(
       );
 
     if (
-      assignedMachineRows.length >
-      0
+      assignedMachineRows.length > 0
     ) {
       await connection.rollback();
 
@@ -477,9 +442,7 @@ export async function register(
       return res
         .status(409)
         .json({
-          success:
-            false,
-
+          success: false,
           message:
             "Cette machine est déjà associée à un compte",
         });
@@ -496,16 +459,8 @@ export async function register(
       );
 
     //==================================================
-    // CRÉATION DU COMPTE
+    // CRÉATION DU COMPTE CLIENT
     //==================================================
-
-    /*
-     * Le rôle est volontairement
-     * imposé à client.
-     *
-     * Le navigateur ne peut donc pas
-     * créer directement un manager.
-     */
 
     const [
       result,
@@ -541,7 +496,7 @@ export async function register(
       );
 
     //==================================================
-    // PREMIÈRE MACHINE DU CLIENT
+    // ASSOCIATION DE LA PREMIÈRE MACHINE
     //==================================================
 
     await connection.query(
@@ -571,10 +526,6 @@ export async function register(
     transactionStarted =
       false;
 
-    //==================================================
-    // UTILISATEUR
-    //==================================================
-
     const user = {
       id:
         userId,
@@ -587,24 +538,15 @@ export async function register(
         "client",
     };
 
-    //==================================================
-    // TOKEN
-    //==================================================
-
     const token =
       createToken(
         user
       );
 
-    //==================================================
-    // RÉPONSE
-    //==================================================
-
     return res
       .status(201)
       .json({
-        success:
-          true,
+        success: true,
 
         message:
           "Compte créé avec succès",
@@ -635,6 +577,19 @@ export async function register(
       }
     }
 
+    if (
+      error?.code ===
+      "ER_DUP_ENTRY"
+    ) {
+      return res
+        .status(409)
+        .json({
+          success: false,
+          message:
+            "Compte ou machine déjà existant",
+        });
+    }
+
     console.error(
       "Erreur pendant l'inscription :",
       error
@@ -643,9 +598,7 @@ export async function register(
     return res
       .status(500)
       .json({
-        success:
-          false,
-
+        success: false,
         message:
           "Erreur pendant la création du compte",
       });
@@ -674,10 +627,6 @@ export async function login(
         ""
       );
 
-    //==================================================
-    // VALIDATION
-    //==================================================
-
     if (
       !email ||
       !password
@@ -685,16 +634,14 @@ export async function login(
       return res
         .status(400)
         .json({
-          success:
-            false,
-
+          success: false,
           message:
             "Email et mot de passe requis",
         });
     }
 
     //==================================================
-    // UTILISATEUR
+    // RECHERCHE UTILISATEUR
     //==================================================
 
     const [
@@ -724,15 +671,12 @@ export async function login(
       );
 
     if (
-      rows.length ===
-      0
+      rows.length === 0
     ) {
       return res
         .status(401)
         .json({
-          success:
-            false,
-
+          success: false,
           message:
             "Email ou mot de passe incorrect",
         });
@@ -753,9 +697,7 @@ export async function login(
       return res
         .status(403)
         .json({
-          success:
-            false,
-
+          success: false,
           message:
             "Ce compte est désactivé",
         });
@@ -776,9 +718,7 @@ export async function login(
       return res
         .status(403)
         .json({
-          success:
-            false,
-
+          success: false,
           message:
             "Compte utilisateur invalide",
         });
@@ -800,9 +740,7 @@ export async function login(
       return res
         .status(401)
         .json({
-          success:
-            false,
-
+          success: false,
           message:
             "Email ou mot de passe incorrect",
         });
@@ -831,8 +769,7 @@ export async function login(
     //==================================================
 
     return res.json({
-      success:
-        true,
+      success: true,
 
       message:
         "Connexion réussie",
@@ -868,9 +805,7 @@ export async function login(
     return res
       .status(500)
       .json({
-        success:
-          false,
-
+        success: false,
         message:
           "Erreur pendant la connexion",
       });
@@ -892,16 +827,14 @@ export async function getCurrentUser(
       return res
         .status(401)
         .json({
-          success:
-            false,
-
+          success: false,
           message:
             "Authentification requise",
         });
     }
 
     //==================================================
-    // UTILISATEUR
+    // RECHERCHE UTILISATEUR
     //==================================================
 
     const [
@@ -930,15 +863,12 @@ export async function getCurrentUser(
       );
 
     if (
-      rows.length ===
-      0
+      rows.length === 0
     ) {
       return res
         .status(401)
         .json({
-          success:
-            false,
-
+          success: false,
           message:
             "Utilisateur introuvable",
         });
@@ -959,9 +889,7 @@ export async function getCurrentUser(
       return res
         .status(403)
         .json({
-          success:
-            false,
-
+          success: false,
           message:
             "Ce compte est désactivé",
         });
@@ -982,9 +910,7 @@ export async function getCurrentUser(
       return res
         .status(403)
         .json({
-          success:
-            false,
-
+          success: false,
           message:
             "Compte utilisateur invalide",
         });
@@ -1004,8 +930,7 @@ export async function getCurrentUser(
     //==================================================
 
     return res.json({
-      success:
-        true,
+      success: true,
 
       user: {
         id:
@@ -1042,9 +967,7 @@ export async function getCurrentUser(
     return res
       .status(500)
       .json({
-        success:
-          false,
-
+        success: false,
         message:
           "Erreur pendant la récupération de l'utilisateur",
       });
@@ -1084,9 +1007,7 @@ export async function addMachineToCurrentUser(
       return res
         .status(401)
         .json({
-          success:
-            false,
-
+          success: false,
           message:
             "Authentification requise",
         });
@@ -1099,16 +1020,14 @@ export async function addMachineToCurrentUser(
       return res
         .status(403)
         .json({
-          success:
-            false,
-
+          success: false,
           message:
             "Cette opération est réservée aux comptes clients",
         });
     }
 
     //==================================================
-    // MACHINE
+    // INFORMATIONS MACHINE
     //==================================================
 
     const machineId =
@@ -1122,13 +1041,17 @@ export async function addMachineToCurrentUser(
         req.body?.serial_number
       );
 
+    const activationCode =
+      normalizeActivationCode(
+        req.body?.activationCode ??
+        req.body?.activation_code
+      );
+
     if (!machineId) {
       return res
         .status(400)
         .json({
-          success:
-            false,
-
+          success: false,
           message:
             "Identifiant machine invalide",
         });
@@ -1138,11 +1061,19 @@ export async function addMachineToCurrentUser(
       return res
         .status(400)
         .json({
-          success:
-            false,
-
+          success: false,
           message:
             "Numéro de série requis",
+        });
+    }
+
+    if (!activationCode) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message:
+            "Code d'activation requis",
         });
     }
 
@@ -1156,7 +1087,7 @@ export async function addMachineToCurrentUser(
       true;
 
     //==================================================
-    // VÉRIFICATION MACHINE
+    // VÉRIFICATION ET VERROUILLAGE MACHINE
     //==================================================
 
     const [
@@ -1176,6 +1107,7 @@ export async function addMachineToCurrentUser(
 
         WHERE id = ?
           AND serial_number = ?
+          AND activation_code = ?
 
         LIMIT 1
 
@@ -1184,12 +1116,12 @@ export async function addMachineToCurrentUser(
         [
           machineId,
           serialNumber,
+          activationCode,
         ]
       );
 
     if (
-      machineRows.length ===
-      0
+      machineRows.length === 0
     ) {
       await connection.rollback();
 
@@ -1199,16 +1131,14 @@ export async function addMachineToCurrentUser(
       return res
         .status(404)
         .json({
-          success:
-            false,
-
+          success: false,
           message:
-            "Machine introuvable ou numéro de série incorrect",
+            "Machine introuvable ou informations d'activation incorrectes",
         });
     }
 
     //==================================================
-    // VÉRIFIER SI LE CLIENT POSSÈDE DÉJÀ LA MACHINE
+    // MACHINE DÉJÀ ASSOCIÉE
     //==================================================
 
     const [
@@ -1253,9 +1183,7 @@ export async function addMachineToCurrentUser(
         return res
           .status(409)
           .json({
-            success:
-              false,
-
+            success: false,
             message:
               "Cette machine est déjà associée à votre compte",
           });
@@ -1264,9 +1192,7 @@ export async function addMachineToCurrentUser(
       return res
         .status(409)
         .json({
-          success:
-            false,
-
+          success: false,
           message:
             "Cette machine est déjà associée à un autre compte",
         });
@@ -1323,8 +1249,7 @@ export async function addMachineToCurrentUser(
     return res
       .status(201)
       .json({
-        success:
-          true,
+        success: true,
 
         message:
           "Machine ajoutée à votre compte",
@@ -1352,12 +1277,6 @@ export async function addMachineToCurrentUser(
       }
     }
 
-    /*
-     * Sécurité supplémentaire si l'index
-     * UNIQUE(machine_id) de user_machines
-     * intercepte deux associations
-     * simultanées.
-     */
     if (
       error?.code ===
       "ER_DUP_ENTRY"
@@ -1365,9 +1284,7 @@ export async function addMachineToCurrentUser(
       return res
         .status(409)
         .json({
-          success:
-            false,
-
+          success: false,
           message:
             "Cette machine est déjà associée à un compte",
         });
@@ -1381,9 +1298,7 @@ export async function addMachineToCurrentUser(
     return res
       .status(500)
       .json({
-        success:
-          false,
-
+        success: false,
         message:
           "Impossible d'ajouter cette machine au compte",
       });
