@@ -1,5 +1,9 @@
 import jwt from "jsonwebtoken";
 
+import {
+  pool,
+} from "../config/database.js";
+
 //======================================================
 // RÉCUPÉRATION DU SECRET JWT
 //======================================================
@@ -35,7 +39,6 @@ export function authenticate(
         .status(401)
         .json({
           success: false,
-
           message:
             "Authentification requise",
         });
@@ -57,7 +60,6 @@ export function authenticate(
         .status(401)
         .json({
           success: false,
-
           message:
             "Token d'authentification invalide",
         });
@@ -78,16 +80,16 @@ export function authenticate(
         .status(401)
         .json({
           success: false,
-
           message:
             "Token invalide",
         });
     }
 
     req.user = {
-      id: Number(
-        decoded.id
-      ),
+      id:
+        Number(
+          decoded.id
+        ),
 
       name:
         decoded.name ??
@@ -113,7 +115,6 @@ export function authenticate(
         .status(401)
         .json({
           success: false,
-
           message:
             "Session expirée",
         });
@@ -127,7 +128,6 @@ export function authenticate(
         .status(401)
         .json({
           success: false,
-
           message:
             "Token invalide",
         });
@@ -142,7 +142,6 @@ export function authenticate(
       .status(500)
       .json({
         success: false,
-
         message:
           "Erreur pendant l'authentification",
       });
@@ -165,7 +164,6 @@ export function requireManager(
       .status(401)
       .json({
         success: false,
-
         message:
           "Authentification requise",
       });
@@ -179,7 +177,6 @@ export function requireManager(
       .status(403)
       .json({
         success: false,
-
         message:
           "Accès réservé aux managers",
       });
@@ -204,7 +201,6 @@ export function requireAuthenticatedUser(
       .status(401)
       .json({
         success: false,
-
         message:
           "Authentification requise",
       });
@@ -222,11 +218,150 @@ export function requireAuthenticatedUser(
       .status(403)
       .json({
         success: false,
-
         message:
           "Rôle utilisateur invalide",
       });
   }
 
   return next();
+}
+
+//======================================================
+// ACCÈS À UNE MACHINE
+//======================================================
+
+export async function requireMachineAccess(
+  req,
+  res,
+  next
+) {
+  try {
+    if (
+      !req.user
+    ) {
+      return res
+        .status(401)
+        .json({
+          success: false,
+          message:
+            "Authentification requise",
+        });
+    }
+
+    //==================================================
+    // RÉCUPÉRATION DE L'IDENTIFIANT MACHINE
+    //==================================================
+
+    const machineId =
+      Number(
+        req.params?.machineId ??
+        req.query?.machineId ??
+        req.body?.machineId ??
+        req.body?.machine_id
+      );
+
+    if (
+      !Number.isInteger(
+        machineId
+      ) ||
+      machineId <= 0
+    ) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message:
+            "Identifiant machine invalide",
+        });
+    }
+
+    //==================================================
+    // MANAGER
+    //==================================================
+
+    /*
+     * Le manager a accès à toutes
+     * les machines.
+     */
+    if (
+      req.user.role ===
+      "manager"
+    ) {
+      req.machineId =
+        machineId;
+
+      return next();
+    }
+
+    //==================================================
+    // CLIENT
+    //==================================================
+
+    if (
+      req.user.role !==
+      "client"
+    ) {
+      return res
+        .status(403)
+        .json({
+          success: false,
+          message:
+            "Accès refusé",
+        });
+    }
+
+    //==================================================
+    // VÉRIFICATION UTILISATEUR / MACHINE
+    //==================================================
+
+    const [
+      rows,
+    ] =
+      await pool.query(
+        `
+        SELECT
+          machine_id
+        FROM user_machines
+        WHERE user_id = ?
+          AND machine_id = ?
+        LIMIT 1
+        `,
+        [
+          req.user.id,
+          machineId,
+        ]
+      );
+
+    if (
+      rows.length === 0
+    ) {
+      return res
+        .status(403)
+        .json({
+          success: false,
+          message:
+            "Vous n'avez pas accès à cette machine",
+        });
+    }
+
+    req.machineId =
+      machineId;
+
+    return next();
+  } catch (
+    error
+  ) {
+    console.error(
+      "Erreur vérification accès machine :",
+      error
+    );
+
+    return res
+      .status(500)
+      .json({
+        success: false,
+        message:
+          "Erreur pendant la vérification de l'accès à la machine",
+      });
+  }
 }
