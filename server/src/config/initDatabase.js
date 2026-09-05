@@ -1,23 +1,39 @@
 import { pool } from "./database.js";
 
+//======================================================
+// VÉRIFICATION DE L'EXISTENCE D'UNE COLONNE
+//======================================================
+
 async function columnExists(
   connection,
   tableName,
   columnName
 ) {
-  const [rows] = await connection.query(
-    `
-    SELECT COUNT(*) AS total
-    FROM information_schema.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = ?
-      AND COLUMN_NAME = ?
-    `,
-    [tableName, columnName]
-  );
+  const [rows] =
+    await connection.query(
+      `
+      SELECT COUNT(*) AS total
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = ?
+        AND COLUMN_NAME = ?
+      `,
+      [
+        tableName,
+        columnName,
+      ]
+    );
 
-  return Number(rows[0].total) > 0;
+  return (
+    Number(
+      rows[0].total
+    ) > 0
+  );
 }
+
+//======================================================
+// AJOUT D'UNE COLONNE SI ELLE N'EXISTE PAS
+//======================================================
 
 async function addColumnIfMissing(
   connection,
@@ -25,11 +41,12 @@ async function addColumnIfMissing(
   columnName,
   definition
 ) {
-  const exists = await columnExists(
-    connection,
-    tableName,
-    columnName
-  );
+  const exists =
+    await columnExists(
+      connection,
+      tableName,
+      columnName
+    );
 
   if (!exists) {
     await connection.query(`
@@ -43,23 +60,29 @@ async function addColumnIfMissing(
   }
 }
 
+//======================================================
+// INITIALISATION DE LA BASE
+//======================================================
+
 export async function initializeDatabase() {
-  const connection = await pool.getConnection();
+  const connection =
+    await pool.getConnection();
 
   try {
-    /*
-     * ===============================
-     * TABLE DES MACHINES
-     * ===============================
-     */
+    //==================================================
+    // TABLE DES MACHINES
+    //==================================================
 
     await connection.query(`
       CREATE TABLE IF NOT EXISTS machines (
-        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        id BIGINT UNSIGNED
+        AUTO_INCREMENT PRIMARY KEY,
 
-        name VARCHAR(100) NOT NULL,
+        name VARCHAR(100)
+        NOT NULL,
 
-        serial_number VARCHAR(100) UNIQUE,
+        serial_number VARCHAR(100)
+        UNIQUE,
 
         location VARCHAR(150),
 
@@ -69,6 +92,10 @@ export async function initializeDatabase() {
         DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    //==================================================
+    // MACHINE PAR DÉFAUT
+    //==================================================
 
     await connection.query(`
       INSERT IGNORE INTO machines (
@@ -85,43 +112,196 @@ export async function initializeDatabase() {
       )
     `);
 
+    //==================================================
+    // UTILISATEURS
+    //==================================================
+
     /*
-     * ===============================
-     * MESURES
-     * ===============================
+     * Cette table contient les comptes
+     * permettant de se connecter au Dashboard.
+     *
+     * Deux rôles :
+     *
+     * manager
+     *   -> accès administratif
+     *
+     * client
+     *   -> consultation des machines
+     *      qui lui sont attribuées
      */
 
     await connection.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id BIGINT UNSIGNED
+        AUTO_INCREMENT PRIMARY KEY,
+
+        name VARCHAR(100)
+        NOT NULL,
+
+        email VARCHAR(190)
+        NOT NULL,
+
+        password_hash VARCHAR(255)
+        NOT NULL,
+
+        role ENUM(
+          'manager',
+          'client'
+        )
+        NOT NULL
+        DEFAULT 'client',
+
+        active BOOLEAN
+        NOT NULL
+        DEFAULT TRUE,
+
+        created_at TIMESTAMP
+        DEFAULT CURRENT_TIMESTAMP,
+
+        updated_at TIMESTAMP
+        DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP,
+
+        UNIQUE KEY unique_user_email (
+          email
+        ),
+
+        INDEX idx_users_role (
+          role
+        ),
+
+        INDEX idx_users_active (
+          active
+        )
+      )
+    `);
+
+    //==================================================
+    // ASSOCIATION UTILISATEURS / MACHINES
+    //==================================================
+
+    /*
+     * Permet d'attribuer une ou plusieurs
+     * machines à un client.
+     *
+     * Exemple :
+     *
+     * Client A -> Machine 1
+     *
+     * Client B -> Machine 2 + Machine 3
+     *
+     * Les managers n'ont normalement pas besoin
+     * d'être présents ici car ils auront accès
+     * à toutes les machines.
+     */
+
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS user_machines (
+        user_id BIGINT UNSIGNED
+        NOT NULL,
+
+        machine_id BIGINT UNSIGNED
+        NOT NULL,
+
+        created_at TIMESTAMP
+        DEFAULT CURRENT_TIMESTAMP,
+
+        PRIMARY KEY (
+          user_id,
+          machine_id
+        ),
+
+        INDEX idx_user_machines_machine (
+          machine_id
+        ),
+
+        CONSTRAINT fk_user_machines_user
+        FOREIGN KEY (
+          user_id
+        )
+        REFERENCES users(id)
+        ON DELETE CASCADE,
+
+        CONSTRAINT fk_user_machines_machine
+        FOREIGN KEY (
+          machine_id
+        )
+        REFERENCES machines(id)
+        ON DELETE CASCADE
+      )
+    `);
+
+    //==================================================
+    // MESURES
+    //==================================================
+
+    await connection.query(`
       CREATE TABLE IF NOT EXISTS machine_measurements (
-        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        id BIGINT UNSIGNED
+        AUTO_INCREMENT PRIMARY KEY,
 
         machine_id BIGINT UNSIGNED
         NOT NULL DEFAULT 1,
 
-        l1_voltage DECIMAL(10,2) DEFAULT 0,
-        l1_current DECIMAL(10,3) DEFAULT 0,
-        l1_power DECIMAL(12,2) DEFAULT 0,
-        l1_energy DECIMAL(14,3) DEFAULT 0,
-        l1_frequency DECIMAL(6,2) DEFAULT 0,
-        l1_power_factor DECIMAL(5,3) DEFAULT 0,
+        l1_voltage DECIMAL(10,2)
+        DEFAULT 0,
 
-        l2_voltage DECIMAL(10,2) DEFAULT 0,
-        l2_current DECIMAL(10,3) DEFAULT 0,
-        l2_power DECIMAL(12,2) DEFAULT 0,
-        l2_energy DECIMAL(14,3) DEFAULT 0,
-        l2_frequency DECIMAL(6,2) DEFAULT 0,
-        l2_power_factor DECIMAL(5,3) DEFAULT 0,
+        l1_current DECIMAL(10,3)
+        DEFAULT 0,
 
-        l3_voltage DECIMAL(10,2) DEFAULT 0,
-        l3_current DECIMAL(10,3) DEFAULT 0,
-        l3_power DECIMAL(12,2) DEFAULT 0,
-        l3_energy DECIMAL(14,3) DEFAULT 0,
-        l3_frequency DECIMAL(6,2) DEFAULT 0,
-        l3_power_factor DECIMAL(5,3) DEFAULT 0,
+        l1_power DECIMAL(12,2)
+        DEFAULT 0,
 
-        temperature DECIMAL(8,2) DEFAULT 0,
+        l1_energy DECIMAL(14,3)
+        DEFAULT 0,
 
-        flow_rate DECIMAL(10,2) DEFAULT 0,
+        l1_frequency DECIMAL(6,2)
+        DEFAULT 0,
+
+        l1_power_factor DECIMAL(5,3)
+        DEFAULT 0,
+
+        l2_voltage DECIMAL(10,2)
+        DEFAULT 0,
+
+        l2_current DECIMAL(10,3)
+        DEFAULT 0,
+
+        l2_power DECIMAL(12,2)
+        DEFAULT 0,
+
+        l2_energy DECIMAL(14,3)
+        DEFAULT 0,
+
+        l2_frequency DECIMAL(6,2)
+        DEFAULT 0,
+
+        l2_power_factor DECIMAL(5,3)
+        DEFAULT 0,
+
+        l3_voltage DECIMAL(10,2)
+        DEFAULT 0,
+
+        l3_current DECIMAL(10,3)
+        DEFAULT 0,
+
+        l3_power DECIMAL(12,2)
+        DEFAULT 0,
+
+        l3_energy DECIMAL(14,3)
+        DEFAULT 0,
+
+        l3_frequency DECIMAL(6,2)
+        DEFAULT 0,
+
+        l3_power_factor DECIMAL(5,3)
+        DEFAULT 0,
+
+        temperature DECIMAL(8,2)
+        DEFAULT 0,
+
+        flow_rate DECIMAL(10,2)
+        DEFAULT 0,
 
         tank_distance_cm DECIMAL(10,2)
         DEFAULT 0,
@@ -138,19 +318,30 @@ export async function initializeDatabase() {
         created_at TIMESTAMP
         DEFAULT CURRENT_TIMESTAMP,
 
-        INDEX idx_measurements_machine(machine_id),
+        INDEX idx_measurements_machine(
+          machine_id
+        ),
 
-        INDEX idx_measurements_created(created_at),
+        INDEX idx_measurements_created(
+          created_at
+        ),
 
         CONSTRAINT fk_measurements_machine
-        FOREIGN KEY(machine_id)
+        FOREIGN KEY(
+          machine_id
+        )
         REFERENCES machines(id)
         ON DELETE CASCADE
       )
     `);
 
+    //==================================================
+    // COLONNES RÉSERVOIR
+    //==================================================
+
     /*
-     * Ajout des colonnes si la table existait déjà.
+     * Ces vérifications permettent de mettre
+     * à jour une ancienne base existante.
      */
 
     await addColumnIfMissing(
@@ -181,66 +372,77 @@ export async function initializeDatabase() {
       "DECIMAL(14,2) DEFAULT 0 AFTER tank_level_percent"
     );
 
-    /*
-     * ===============================
-     * ALERTES
-     * ===============================
-     */
+    //==================================================
+    // ALERTES
+    //==================================================
 
     await connection.query(`
       CREATE TABLE IF NOT EXISTS machine_alerts (
-        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        id BIGINT UNSIGNED
+        AUTO_INCREMENT PRIMARY KEY,
 
         machine_id BIGINT UNSIGNED
         NOT NULL DEFAULT 1,
 
-        source VARCHAR(50) NOT NULL,
+        source VARCHAR(50)
+        NOT NULL,
 
         level ENUM(
           'warning',
           'critical'
-        ) NOT NULL,
+        )
+        NOT NULL,
 
-        message VARCHAR(255) NOT NULL,
+        message VARCHAR(255)
+        NOT NULL,
 
         measured_value VARCHAR(100),
 
         threshold_value VARCHAR(100),
 
-        acknowledged BOOLEAN DEFAULT FALSE,
+        acknowledged BOOLEAN
+        DEFAULT FALSE,
 
-        acknowledged_at DATETIME NULL,
+        acknowledged_at DATETIME
+        NULL,
 
         created_at TIMESTAMP
         DEFAULT CURRENT_TIMESTAMP,
 
-        INDEX idx_alerts_machine(machine_id),
+        INDEX idx_alerts_machine(
+          machine_id
+        ),
 
-        INDEX idx_alerts_created(created_at),
+        INDEX idx_alerts_created(
+          created_at
+        ),
 
         CONSTRAINT fk_alerts_machine
-        FOREIGN KEY(machine_id)
+        FOREIGN KEY(
+          machine_id
+        )
         REFERENCES machines(id)
         ON DELETE CASCADE
       )
     `);
 
-    /*
-     * ===============================
-     * SEUILS
-     * ===============================
-     */
+    //==================================================
+    // SEUILS
+    //==================================================
 
     await connection.query(`
       CREATE TABLE IF NOT EXISTS machine_thresholds (
-        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        id BIGINT UNSIGNED
+        AUTO_INCREMENT PRIMARY KEY,
 
         machine_id BIGINT UNSIGNED
         NOT NULL DEFAULT 1,
 
-        source VARCHAR(50) NOT NULL,
+        source VARCHAR(50)
+        NOT NULL,
 
-        parameter_name VARCHAR(100) NOT NULL,
+        parameter_name VARCHAR(100)
+        NOT NULL,
 
         minimum_value DECIMAL(14,4),
 
@@ -263,36 +465,183 @@ export async function initializeDatabase() {
         ),
 
         CONSTRAINT fk_thresholds_machine
-        FOREIGN KEY(machine_id)
+        FOREIGN KEY(
+          machine_id
+        )
         REFERENCES machines(id)
         ON DELETE CASCADE
       )
     `);
 
-    /*
-     * ===============================
-     * SEUILS PAR DÉFAUT
-     * ===============================
-     */
+    //==================================================
+    // SEUILS PAR DÉFAUT
+    //==================================================
 
     const defaultThresholds = [
-      [1, "L1", "voltage", 210, 240, null, null, "V"],
-      [1, "L1", "current", 0, 10, null, null, "A"],
-      [1, "L1", "power", 0, 2200, null, null, "W"],
-      [1, "L1", "frequency", 49, 51, null, null, "Hz"],
-      [1, "L1", "powerFactor", 0.8, 1, null, null, ""],
+      [
+        1,
+        "L1",
+        "voltage",
+        210,
+        240,
+        null,
+        null,
+        "V",
+      ],
 
-      [1, "L2", "voltage", 210, 240, null, null, "V"],
-      [1, "L2", "current", 0, 10, null, null, "A"],
-      [1, "L2", "power", 0, 2200, null, null, "W"],
-      [1, "L2", "frequency", 49, 51, null, null, "Hz"],
-      [1, "L2", "powerFactor", 0.8, 1, null, null, ""],
+      [
+        1,
+        "L1",
+        "current",
+        0,
+        10,
+        null,
+        null,
+        "A",
+      ],
 
-      [1, "L3", "voltage", 210, 240, null, null, "V"],
-      [1, "L3", "current", 0, 10, null, null, "A"],
-      [1, "L3", "power", 0, 2200, null, null, "W"],
-      [1, "L3", "frequency", 49, 51, null, null, "Hz"],
-      [1, "L3", "powerFactor", 0.8, 1, null, null, ""],
+      [
+        1,
+        "L1",
+        "power",
+        0,
+        2200,
+        null,
+        null,
+        "W",
+      ],
+
+      [
+        1,
+        "L1",
+        "frequency",
+        49,
+        51,
+        null,
+        null,
+        "Hz",
+      ],
+
+      [
+        1,
+        "L1",
+        "powerFactor",
+        0.8,
+        1,
+        null,
+        null,
+        "",
+      ],
+
+      [
+        1,
+        "L2",
+        "voltage",
+        210,
+        240,
+        null,
+        null,
+        "V",
+      ],
+
+      [
+        1,
+        "L2",
+        "current",
+        0,
+        10,
+        null,
+        null,
+        "A",
+      ],
+
+      [
+        1,
+        "L2",
+        "power",
+        0,
+        2200,
+        null,
+        null,
+        "W",
+      ],
+
+      [
+        1,
+        "L2",
+        "frequency",
+        49,
+        51,
+        null,
+        null,
+        "Hz",
+      ],
+
+      [
+        1,
+        "L2",
+        "powerFactor",
+        0.8,
+        1,
+        null,
+        null,
+        "",
+      ],
+
+      [
+        1,
+        "L3",
+        "voltage",
+        210,
+        240,
+        null,
+        null,
+        "V",
+      ],
+
+      [
+        1,
+        "L3",
+        "current",
+        0,
+        10,
+        null,
+        null,
+        "A",
+      ],
+
+      [
+        1,
+        "L3",
+        "power",
+        0,
+        2200,
+        null,
+        null,
+        "W",
+      ],
+
+      [
+        1,
+        "L3",
+        "frequency",
+        49,
+        51,
+        null,
+        null,
+        "Hz",
+      ],
+
+      [
+        1,
+        "L3",
+        "powerFactor",
+        0.8,
+        1,
+        null,
+        null,
+        "",
+      ],
 
       [
         1,
@@ -350,7 +699,10 @@ export async function initializeDatabase() {
       ],
     ];
 
-    for (const threshold of defaultThresholds) {
+    for (
+      const threshold
+      of defaultThresholds
+    ) {
       await connection.query(
         `
         INSERT IGNORE INTO machine_thresholds (
@@ -363,24 +715,32 @@ export async function initializeDatabase() {
           critical_value,
           unit
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?
+        )
         `,
         threshold
       );
     }
 
-    /*
-     * ===============================
-     * CONFIGURATION DES MACHINES
-     * ===============================
-     */
+    //==================================================
+    // CONFIGURATION DES MACHINES
+    //==================================================
 
     await connection.query(`
       CREATE TABLE IF NOT EXISTS machine_configurations (
         id BIGINT UNSIGNED
         AUTO_INCREMENT PRIMARY KEY,
 
-        machine_id BIGINT UNSIGNED NOT NULL,
+        machine_id BIGINT UNSIGNED
+        NOT NULL,
 
         ultrasonic_offset_cm DECIMAL(10,2)
         NOT NULL DEFAULT 0,
@@ -406,15 +766,17 @@ export async function initializeDatabase() {
         ),
 
         CONSTRAINT fk_configuration_machine
-        FOREIGN KEY(machine_id)
+        FOREIGN KEY(
+          machine_id
+        )
         REFERENCES machines(id)
         ON DELETE CASCADE
       )
     `);
 
-    /*
-     * Configuration initiale de la machine 1.
-     */
+    //==================================================
+    // CONFIGURATION INITIALE MACHINE 1
+    //==================================================
 
     await connection.query(`
       INSERT IGNORE INTO machine_configurations (
@@ -433,17 +795,60 @@ export async function initializeDatabase() {
       )
     `);
 
-    console.log("====================================");
-    console.log("Base de données initialisée");
-    console.log("Table machines             OK");
-    console.log("Table measurements         OK");
-    console.log("Colonnes réservoir         OK");
-    console.log("Table alerts               OK");
-    console.log("Table thresholds           OK");
-    console.log("Seuils par défaut          OK");
-    console.log("Table configurations       OK");
-    console.log("====================================");
-  } catch (error) {
+    //==================================================
+    // FIN
+    //==================================================
+
+    console.log(
+      "===================================="
+    );
+
+    console.log(
+      "Base de données initialisée"
+    );
+
+    console.log(
+      "Table machines             OK"
+    );
+
+    console.log(
+      "Table users                OK"
+    );
+
+    console.log(
+      "Table user_machines        OK"
+    );
+
+    console.log(
+      "Table measurements         OK"
+    );
+
+    console.log(
+      "Colonnes réservoir         OK"
+    );
+
+    console.log(
+      "Table alerts               OK"
+    );
+
+    console.log(
+      "Table thresholds           OK"
+    );
+
+    console.log(
+      "Seuils par défaut          OK"
+    );
+
+    console.log(
+      "Table configurations       OK"
+    );
+
+    console.log(
+      "===================================="
+    );
+  } catch (
+    error
+  ) {
     console.error(
       "Erreur pendant l'initialisation de la base :",
       error
