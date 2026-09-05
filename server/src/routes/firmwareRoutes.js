@@ -1,219 +1,469 @@
-import { Router } from "express";
+import {
+  Router,
+} from "express";
+
 import path from "path";
 import fs from "fs";
-import { fileURLToPath } from "url";
+import {
+  fileURLToPath,
+} from "url";
 
 const router = Router();
 
-const currentFile = fileURLToPath(import.meta.url);
-const currentDirectory = path.dirname(currentFile);
+//======================================================
+// CHEMINS
+//======================================================
 
-const versionFilePath = path.resolve(
-  currentDirectory,
-  "../../firmware/version.json"
-);
+const currentFile =
+  fileURLToPath(
+    import.meta.url
+  );
 
-const firmwareFilePath = path.resolve(
-  currentDirectory,
-  "../../firmware/diagnostic-machine.bin"
-);
+const currentDirectory =
+  path.dirname(
+    currentFile
+  );
+
+const versionFilePath =
+  path.resolve(
+    currentDirectory,
+    "../../firmware/version.json"
+  );
+
+const firmwareFilePath =
+  path.resolve(
+    currentDirectory,
+    "../../firmware/diagnostic-machine.bin"
+  );
+
+//======================================================
+// OUTILS
+//======================================================
+
+function normalizeMachineId(
+  value
+) {
+  const machineId =
+    Number(value);
+
+  if (
+    !Number.isInteger(
+      machineId
+    ) ||
+    machineId <= 0
+  ) {
+    return null;
+  }
+
+  return machineId;
+}
+
+//======================================================
+// VERSION DU FIRMWARE
+//======================================================
 
 /*
  * GET /api/firmware
  *
- * Renvoie la version disponible
- * et l'adresse de téléchargement.
+ * Cette route reste accessible à l'ESP32.
+ *
+ * L'ESP32 l'utilise pour vérifier
+ * si une nouvelle version est disponible.
  */
-router.get("/", (req, res, next) => {
-  try {
-    if (!fs.existsSync(versionFilePath)) {
-      return res.status(404).json({
-        success: false,
-        message: "Fichier version.json introuvable",
+
+router.get(
+  "/",
+  (
+    req,
+    res,
+    next
+  ) => {
+    try {
+      //================================================
+      // VERSION.JSON
+      //================================================
+
+      if (
+        !fs.existsSync(
+          versionFilePath
+        )
+      ) {
+        return res
+          .status(404)
+          .json({
+            success: false,
+
+            message:
+              "Fichier version.json introuvable",
+          });
+      }
+
+      const versionFileContent =
+        fs.readFileSync(
+          versionFilePath,
+          "utf8"
+        );
+
+      const versionData =
+        JSON.parse(
+          versionFileContent
+        );
+
+      const version =
+        typeof versionData.version ===
+          "string"
+          ? versionData.version.trim()
+          : "";
+
+      if (!version) {
+        throw new Error(
+          "La version du firmware est absente dans version.json"
+        );
+      }
+
+      //================================================
+      // FIRMWARE
+      //================================================
+
+      if (
+        !fs.existsSync(
+          firmwareFilePath
+        )
+      ) {
+        return res
+          .status(404)
+          .json({
+            success: false,
+
+            message:
+              "Fichier firmware introuvable",
+          });
+      }
+
+      //================================================
+      // URL
+      //================================================
+
+      const firmwareUrl =
+        `${req.protocol}://${req.get(
+          "host"
+        )}` +
+        "/api/firmware/download";
+
+      //================================================
+      // RÉPONSE
+      //================================================
+
+      return res.json({
+        success: true,
+        version,
+        url:
+          firmwareUrl,
       });
-    }
-
-    const versionFileContent = fs.readFileSync(
-      versionFilePath,
-      "utf8"
-    );
-
-    const versionData = JSON.parse(
-      versionFileContent
-    );
-
-    if (!versionData.version) {
-      throw new Error(
-        "La version du firmware est absente dans version.json"
+    } catch (error) {
+      return next(
+        error
       );
     }
-
-    if (!fs.existsSync(firmwareFilePath)) {
-      return res.status(404).json({
-        success: false,
-        message: "Fichier firmware introuvable",
-      });
-    }
-
-    const firmwareUrl =
-      `${req.protocol}://${req.get("host")}` +
-      "/api/firmware/download";
-
-    return res.json({
-      success: true,
-      version: versionData.version,
-      url: firmwareUrl,
-    });
-  } catch (error) {
-    next(error);
   }
-});
+);
+
+//======================================================
+// PROGRESSION OTA
+//======================================================
 
 /*
  * POST /api/firmware/progress
  *
- * Reçoit la progression OTA envoyée par l'ESP32,
- * puis la transmet à la page web avec Socket.IO.
+ * Cette route est appelée directement
+ * par l'ESP32 pendant une mise à jour OTA.
+ *
+ * Elle ne doit donc PAS utiliser
+ * authenticate / JWT utilisateur.
+ *
+ * Exemple :
+ *
+ * {
+ *   "machineId": 1,
+ *   "status": "downloading",
+ *   "progress": 45,
+ *   "message": "Téléchargement...",
+ *   "version": "1.1.0"
+ * }
  */
-router.post("/progress", (req, res, next) => {
-  try {
-    const {
-      machineId,
-      status,
-      progress,
-      message,
-      version,
-    } = req.body ?? {};
 
-    if (
-      machineId === undefined ||
-      machineId === null ||
-      machineId === ""
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "machineId manquant",
-      });
-    }
+router.post(
+  "/progress",
+  (
+    req,
+    res,
+    next
+  ) => {
+    try {
+      const {
+        machineId,
+        status,
+        progress,
+        message,
+        version,
+      } =
+        req.body ?? {};
 
-    const numericMachineId = Number(machineId);
-    const numericProgress = Number(progress);
+      //================================================
+      // MACHINE
+      //================================================
 
-    if (!Number.isFinite(numericMachineId)) {
-      return res.status(400).json({
-        success: false,
-        message: "machineId invalide",
-      });
-    }
+      const numericMachineId =
+        normalizeMachineId(
+          machineId
+        );
 
-    const otaProgress = {
-      machineId: numericMachineId,
+      if (
+        !numericMachineId
+      ) {
+        return res
+          .status(400)
+          .json({
+            success: false,
 
-      status:
-        typeof status === "string" && status.trim()
+            message:
+              "machineId invalide",
+          });
+      }
+
+      //================================================
+      // PROGRESSION
+      //================================================
+
+      const numericProgress =
+        Number(
+          progress
+        );
+
+      const safeProgress =
+        Number.isFinite(
+          numericProgress
+        )
+          ? Math.min(
+              100,
+              Math.max(
+                0,
+                Math.round(
+                  numericProgress
+                )
+              )
+            )
+          : 0;
+
+      //================================================
+      // STATUS
+      //================================================
+
+      const safeStatus =
+        typeof status ===
+          "string" &&
+        status.trim()
           ? status.trim()
-          : "unknown",
+          : "unknown";
 
-      progress: Number.isFinite(numericProgress)
-        ? Math.min(
-            100,
-            Math.max(0, Math.round(numericProgress))
-          )
-        : 0,
+      //================================================
+      // MESSAGE
+      //================================================
 
-      message:
-        typeof message === "string"
-          ? message
-          : "",
+      const safeMessage =
+        typeof message ===
+        "string"
+          ? message.trim()
+          : "";
 
-      version:
-        typeof version === "string"
-          ? version
-          : "",
+      //================================================
+      // VERSION
+      //================================================
 
-      timestamp: new Date().toISOString(),
-    };
+      const safeVersion =
+        typeof version ===
+        "string"
+          ? version.trim()
+          : "";
 
-    const io = req.app.get("io");
+      //================================================
+      // OBJET OTA
+      //================================================
 
-    if (!io) {
-      throw new Error(
-        "Socket.IO n'est pas disponible dans l'application"
+      const otaProgress = {
+        machineId:
+          numericMachineId,
+
+        status:
+          safeStatus,
+
+        progress:
+          safeProgress,
+
+        message:
+          safeMessage,
+
+        version:
+          safeVersion,
+
+        timestamp:
+          new Date()
+            .toISOString(),
+      };
+
+      //================================================
+      // SOCKET.IO
+      //================================================
+
+      const io =
+        req.app.get(
+          "io"
+        );
+
+      if (!io) {
+        throw new Error(
+          "Socket.IO n'est pas disponible dans l'application"
+        );
+      }
+
+      /*
+       * IMPORTANT :
+       *
+       * On n'utilise PAS :
+       *
+       * io.emit(...)
+       *
+       * La progression est envoyée
+       * uniquement dans la room
+       * correspondant à la machine.
+       */
+
+      io
+        .to(
+          `machine:${numericMachineId}`
+        )
+        .emit(
+          "firmware:progress",
+          otaProgress
+        );
+
+      //================================================
+      // LOG
+      //================================================
+
+      console.log(
+        `[OTA] Machine ${numericMachineId} : ` +
+          `${safeStatus} - ` +
+          `${safeProgress}% - ` +
+          `${safeMessage}`
+      );
+
+      //================================================
+      // RÉPONSE
+      //================================================
+
+      return res
+        .status(200)
+        .json({
+          success: true,
+          data:
+            otaProgress,
+        });
+    } catch (error) {
+      return next(
+        error
       );
     }
-
-    /*
-     * Diffusion générale.
-     *
-     * La page React filtrera ensuite les événements
-     * selon machineId.
-     */
-   io.to(
-      `machine:${numericMachineId}`
-    ).emit(
-      "firmware:progress",
-      otaProgress
-    );
-
-    console.log(
-      `[OTA] Machine ${otaProgress.machineId} : ` +
-      `${otaProgress.status} - ` +
-      `${otaProgress.progress}% - ` +
-      `${otaProgress.message}`
-    );
-
-    return res.status(200).json({
-      success: true,
-      data: otaProgress,
-    });
-  } catch (error) {
-    next(error);
   }
-});
+);
+
+//======================================================
+// TÉLÉCHARGEMENT DU FIRMWARE
+//======================================================
 
 /*
  * GET /api/firmware/download
  *
- * Télécharge directement le fichier .bin.
+ * Cette route est utilisée directement
+ * par l'ESP32.
+ *
+ * Elle reste donc accessible sans
+ * JWT utilisateur.
  */
-router.get("/download", (req, res, next) => {
-  try {
-    if (!fs.existsSync(firmwareFilePath)) {
-      return res.status(404).json({
-        success: false,
-        message: "Fichier firmware introuvable",
-      });
-    }
 
-    res.setHeader(
-      "Content-Type",
-      "application/octet-stream"
-    );
+router.get(
+  "/download",
+  (
+    req,
+    res,
+    next
+  ) => {
+    try {
+      //================================================
+      // VÉRIFICATION DU FICHIER
+      //================================================
 
-    res.setHeader(
-      "Content-Disposition",
-      'attachment; filename="diagnostic-machine.bin"'
-    );
+      if (
+        !fs.existsSync(
+          firmwareFilePath
+        )
+      ) {
+        return res
+          .status(404)
+          .json({
+            success: false,
 
-    res.setHeader(
-      "Cache-Control",
-      "no-store, no-cache, must-revalidate"
-    );
-
-    res.sendFile(
-      firmwareFilePath,
-      (error) => {
-        if (
-          error &&
-          !res.headersSent
-        ) {
-          next(error);
-        }
+            message:
+              "Fichier firmware introuvable",
+          });
       }
-    );
-  } catch (error) {
-    next(error);
+
+      //================================================
+      // HEADERS
+      //================================================
+
+      res.setHeader(
+        "Content-Type",
+        "application/octet-stream"
+      );
+
+      res.setHeader(
+        "Content-Disposition",
+        'attachment; filename="diagnostic-machine.bin"'
+      );
+
+      res.setHeader(
+        "Cache-Control",
+        "no-store, no-cache, must-revalidate"
+      );
+
+      //================================================
+      // ENVOI
+      //================================================
+
+      return res.sendFile(
+        firmwareFilePath,
+        (
+          error
+        ) => {
+          if (
+            error &&
+            !res.headersSent
+          ) {
+            next(
+              error
+            );
+          }
+        }
+      );
+    } catch (error) {
+      return next(
+        error
+      );
+    }
   }
-});
+);
+
+//======================================================
 
 export default router;
