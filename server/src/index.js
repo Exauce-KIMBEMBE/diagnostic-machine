@@ -3,6 +3,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import http from "http";
+import jwt from "jsonwebtoken";
 import { Server } from "socket.io";
 
 import machineRoutes from "./routes/machineRoutes.js";
@@ -10,14 +11,10 @@ import alertRoutes from "./routes/alertRoutes.js";
 import thresholdRoutes from "./routes/thresholdRoutes.js";
 import configurationRoutes from "./routes/configurationRoutes.js";
 import firmwareRoutes from "./routes/firmwareRoutes.js";
-
-/*
- * NOUVEAU :
- * Routes d'authentification
- */
 import authRoutes from "./routes/authRoutes.js";
 
 import {
+  pool,
   testDatabaseConnection,
 } from "./config/database.js";
 
@@ -25,37 +22,31 @@ import {
   initializeDatabase,
 } from "./config/initDatabase.js";
 
+//======================================================
+// APPLICATION
+//======================================================
+
 const app = express();
 
 const server =
   http.createServer(app);
 
-const PORT = Number(
-  process.env.PORT || 3001
-);
+const PORT =
+  Number(
+    process.env.PORT ||
+      3001
+  );
 
 //======================================================
 // PRÉSENCE DES MACHINES
 //======================================================
 
-/*
- * Une machine est considérée hors ligne
- * après 30 secondes sans nouvelle mesure.
- */
 const MACHINE_OFFLINE_DELAY =
   30_000;
 
-/*
- * Le serveur vérifie l’état des machines
- * toutes les 5 secondes.
- */
 const MACHINE_CHECK_INTERVAL =
   5_000;
 
-/*
- * Stockage temporaire de l'état
- * des machines en mémoire.
- */
 const connectedMachines =
   new Map();
 
@@ -63,7 +54,7 @@ let databaseConnected =
   false;
 
 //======================================================
-// CONFIGURATION CORS
+// CORS
 //======================================================
 
 const allowedOrigins = [
@@ -77,9 +68,11 @@ const corsOptions = {
     callback
   ) {
     /*
-     * ESP32, Postman et certaines requêtes
-     * serveur peuvent ne pas envoyer Origin.
+     * ESP32, Postman et certaines
+     * requêtes serveur n'envoient
+     * pas forcément Origin.
      */
+
     if (
       !origin ||
       allowedOrigins.includes(
@@ -124,22 +117,18 @@ const io =
   new Server(
     server,
     {
-      cors: corsOptions,
+      cors:
+        corsOptions,
     }
   );
 
-/*
- * Permet aux routes d'utiliser :
- *
- * req.app.get("io")
- */
 app.set(
   "io",
   io
 );
 
 //======================================================
-// OUTILS DE PRÉSENCE MACHINE
+// OUTILS
 //======================================================
 
 function normalizeMachineId(
@@ -184,6 +173,25 @@ function extractMachineId(
 }
 
 //======================================================
+// JWT
+//======================================================
+
+function getJwtSecret() {
+  const secret =
+    process.env.JWT_SECRET;
+
+  if (!secret) {
+    throw new Error(
+      "JWT_SECRET manquant dans le fichier .env"
+    );
+  }
+
+  return secret;
+}
+
+//======================================================
+// PRÉSENCE MACHINE
+//======================================================
 
 function getMachinePresence(
   machineId
@@ -195,10 +203,17 @@ function getMachinePresence(
 
   if (!normalizedId) {
     return {
-      machineId: null,
-      online: false,
-      lastSeen: null,
-      lastData: null,
+      machineId:
+        null,
+
+      online:
+        false,
+
+      lastSeen:
+        null,
+
+      lastData:
+        null,
     };
   }
 
@@ -212,16 +227,20 @@ function getMachinePresence(
       machineId:
         normalizedId,
 
-      online: false,
+      online:
+        false,
 
-      lastSeen: null,
+      lastSeen:
+        null,
 
-      lastData: null,
+      lastData:
+        null,
     };
   }
 
   const online =
-    machine.online === true &&
+    machine.online ===
+      true &&
     Date.now() -
       machine.lastSeen <
       MACHINE_OFFLINE_DELAY;
@@ -279,7 +298,8 @@ function markMachineOnline(
     Date.now();
 
   const nextState = {
-    online: true,
+    online:
+      true,
 
     lastSeen:
       now,
@@ -295,76 +315,78 @@ function markMachineOnline(
     nextState
   );
 
-  /*
-   * Émission uniquement lorsque la machine
-   * passe réellement hors ligne -> en ligne.
-   */
   if (!wasOnline) {
-    io.to(
-      getMachineRoom(
-        normalizedId
+    io
+      .to(
+        getMachineRoom(
+          normalizedId
+        )
       )
-    ).emit(
-      "machine:online",
-      {
-        machineId:
-          normalizedId,
+      .emit(
+        "machine:online",
+        {
+          machineId:
+            normalizedId,
 
-        online: true,
+          online:
+            true,
 
-        status:
-          "online",
+          status:
+            "online",
 
-        lastSeen:
-          new Date(
-            now
-          ).toISOString(),
+          lastSeen:
+            new Date(
+              now
+            ).toISOString(),
 
-        timestamp:
-          new Date(
-            now
-          ).toISOString(),
-      }
-    );
+          timestamp:
+            new Date(
+              now
+            ).toISOString(),
+        }
+      );
 
     console.log(
       `Machine ${normalizedId} en ligne`
     );
   }
 
-  /*
-   * Envoi immédiat des nouvelles mesures
-   * au Dashboard.
-   */
+  //====================================================
+  // MESURES TEMPS RÉEL
+  //====================================================
+
   if (
     machineData &&
     typeof machineData ===
       "object"
   ) {
-    io.to(
-      getMachineRoom(
-        normalizedId
+    io
+      .to(
+        getMachineRoom(
+          normalizedId
+        )
       )
-    ).emit(
-      "machine:update",
-      {
-        ...machineData,
+      .emit(
+        "machine:update",
+        {
+          ...machineData,
 
-        machineId:
-          normalizedId,
+          machineId:
+            normalizedId,
 
-        online: true,
+          online:
+            true,
 
-        status:
-          "online",
+          status:
+            "online",
 
-        timestamp:
-          machineData.timestamp ??
-          new Date(
-            now
-          ).toISOString(),
-      }
-    );
+          timestamp:
+            machineData.timestamp ??
+            new Date(
+              now
+            ).toISOString(),
+        }
+      );
   }
 
   return nextState;
@@ -407,44 +429,120 @@ function markMachineOffline(
     normalizedId,
     {
       ...previousState,
-
-      online: false,
+      online:
+        false,
     }
   );
 
-  io.to(
-    getMachineRoom(
-      normalizedId
+  io
+    .to(
+      getMachineRoom(
+        normalizedId
+      )
     )
-  ).emit(
-    "machine:offline",
-    {
-      machineId:
-        normalizedId,
+    .emit(
+      "machine:offline",
+      {
+        machineId:
+          normalizedId,
 
-      online: false,
+        online:
+          false,
 
-      status:
-        "offline",
+        status:
+          "offline",
 
-      reason,
+        reason,
 
-      lastSeen:
-        previousState.lastSeen
-          ? new Date(
-              previousState.lastSeen
-            ).toISOString()
-          : null,
+        lastSeen:
+          previousState.lastSeen
+            ? new Date(
+                previousState.lastSeen
+              ).toISOString()
+            : null,
 
-      timestamp:
-        new Date(
-          now
-        ).toISOString(),
-    }
-  );
+        timestamp:
+          new Date(
+            now
+          ).toISOString(),
+      }
+    );
 
   console.log(
     `Machine ${normalizedId} hors ligne : ${reason}`
+  );
+}
+
+//======================================================
+// VÉRIFICATION ACCÈS SOCKET À UNE MACHINE
+//======================================================
+
+async function canSocketAccessMachine(
+  socket,
+  machineId
+) {
+  const normalizedId =
+    normalizeMachineId(
+      machineId
+    );
+
+  if (!normalizedId) {
+    return false;
+  }
+
+  const user =
+    socket.data.user;
+
+  if (!user) {
+    return false;
+  }
+
+  //====================================================
+  // MANAGER
+  //====================================================
+
+  if (
+    user.role ===
+    "manager"
+  ) {
+    return true;
+  }
+
+  //====================================================
+  // CLIENT
+  //====================================================
+
+  if (
+    user.role !==
+    "client"
+  ) {
+    return false;
+  }
+
+  const [
+    rows,
+  ] =
+    await pool.query(
+      `
+      SELECT
+        machine_id
+
+      FROM user_machines
+
+      WHERE user_id = ?
+        AND machine_id = ?
+
+      LIMIT 1
+      `,
+      [
+        user.id,
+        normalizedId,
+      ]
+    );
+
+  return (
+    rows.length >
+    0
   );
 }
 
@@ -473,7 +571,7 @@ app.set(
 );
 
 //======================================================
-// SURVEILLANCE AUTOMATIQUE DES MACHINES
+// SURVEILLANCE AUTOMATIQUE
 //======================================================
 
 const machinePresenceTimer =
@@ -512,14 +610,10 @@ const machinePresenceTimer =
     MACHINE_CHECK_INTERVAL
   );
 
-/*
- * Le timer ne doit pas empêcher Node.js
- * de s'arrêter normalement.
- */
 machinePresenceTimer.unref();
 
 //======================================================
-// MIDDLEWARES
+// MIDDLEWARES EXPRESS
 //======================================================
 
 app.use(
@@ -530,13 +624,15 @@ app.use(
 
 app.use(
   express.json({
-    limit: "1mb",
+    limit:
+      "1mb",
   })
 );
 
 app.use(
   express.urlencoded({
-    extended: true,
+    extended:
+      true,
   })
 );
 
@@ -567,10 +663,6 @@ app.use(
       return next();
     }
 
-    /*
-     * On attend que la route ait réellement
-     * accepté et enregistré la mesure.
-     */
     res.on(
       "finish",
       () => {
@@ -602,20 +694,22 @@ app.get(
     req,
     res
   ) => {
-    res.json({
-      success: true,
+    return res.json({
+      success:
+        true,
 
       message:
         "Serveur Diagnostic Machine actif",
 
       timestamp:
-        new Date().toISOString(),
+        new Date()
+          .toISOString(),
     });
   }
 );
 
 //======================================================
-// TEST DU SERVEUR
+// HEALTH
 //======================================================
 
 app.get(
@@ -636,8 +730,9 @@ app.get(
           ).online
       );
 
-    res.json({
-      success: true,
+    return res.json({
+      success:
+        true,
 
       server:
         "online",
@@ -653,63 +748,8 @@ app.get(
         onlineMachines.length,
 
       timestamp:
-        new Date().toISOString(),
-    });
-  }
-);
-
-//======================================================
-// STATUT D'UNE MACHINE
-//======================================================
-
-app.get(
-  "/api/machines/:machineId/status",
-  (
-    req,
-    res
-  ) => {
-    const machineId =
-      normalizeMachineId(
-        req.params.machineId
-      );
-
-    if (!machineId) {
-      return res
-        .status(
-          400
-        )
-        .json({
-          success: false,
-
-          message:
-            "Identifiant machine invalide",
-        });
-    }
-
-    const presence =
-      getMachinePresence(
-        machineId
-      );
-
-    return res.json({
-      success: true,
-
-      machineId,
-
-      online:
-        presence.online,
-
-      status:
-        presence.online
-          ? "online"
-          : "offline",
-
-      lastSeen:
-        presence.lastSeen
-          ? new Date(
-              presence.lastSeen
-            ).toISOString()
-          : null,
+        new Date()
+          .toISOString(),
     });
   }
 );
@@ -719,22 +759,18 @@ app.get(
 //======================================================
 
 /*
- * Routes prévues :
- *
+ * POST /api/auth/register
  * POST /api/auth/login
  * GET  /api/auth/me
- *
- * Plus tard :
- * POST /api/auth/logout
- * POST /api/auth/change-password
  */
+
 app.use(
   "/api/auth",
   authRoutes
 );
 
 //======================================================
-// ROUTES API MACHINE
+// ROUTES MACHINE
 //======================================================
 
 app.use(
@@ -743,7 +779,7 @@ app.use(
 );
 
 //======================================================
-// ROUTES ALERTES
+// ALERTES
 //======================================================
 
 app.use(
@@ -752,7 +788,7 @@ app.use(
 );
 
 //======================================================
-// ROUTES SEUILS
+// SEUILS
 //======================================================
 
 app.use(
@@ -761,7 +797,7 @@ app.use(
 );
 
 //======================================================
-// ROUTES CONFIGURATION
+// CONFIGURATION
 //======================================================
 
 app.use(
@@ -770,12 +806,477 @@ app.use(
 );
 
 //======================================================
-// ROUTES FIRMWARE / OTA
+// FIRMWARE
 //======================================================
 
 app.use(
   "/api/firmware",
   firmwareRoutes
+);
+
+//======================================================
+// SOCKET.IO - AUTHENTIFICATION JWT
+//======================================================
+
+io.use(
+  (
+    socket,
+    next
+  ) => {
+    try {
+      /*
+       * Le Dashboard devra envoyer :
+       *
+       * io(API_URL, {
+       *   auth: {
+       *     token: token
+       *   }
+       * })
+       */
+
+      let token =
+        socket.handshake
+          ?.auth
+          ?.token;
+
+      /*
+       * Compatibilité éventuelle avec :
+       *
+       * Authorization: Bearer ...
+       */
+
+      if (!token) {
+        const authorization =
+          socket.handshake
+            ?.headers
+            ?.authorization;
+
+        if (
+          typeof authorization ===
+            "string" &&
+          authorization.startsWith(
+            "Bearer "
+          )
+        ) {
+          token =
+            authorization
+              .slice(7)
+              .trim();
+        }
+      }
+
+      if (!token) {
+        return next(
+          new Error(
+            "Authentification Socket.IO requise"
+          )
+        );
+      }
+
+      const decoded =
+        jwt.verify(
+          token,
+          getJwtSecret()
+        );
+
+      if (
+        !decoded?.id ||
+        !decoded?.role
+      ) {
+        return next(
+          new Error(
+            "Token Socket.IO invalide"
+          )
+        );
+      }
+
+      if (
+        ![
+          "manager",
+          "client",
+        ].includes(
+          decoded.role
+        )
+      ) {
+        return next(
+          new Error(
+            "Rôle Socket.IO invalide"
+          )
+        );
+      }
+
+      socket.data.user = {
+        id:
+          Number(
+            decoded.id
+          ),
+
+        name:
+          decoded.name ??
+          null,
+
+        email:
+          decoded.email ??
+          null,
+
+        role:
+          decoded.role,
+      };
+
+      return next();
+    } catch (error) {
+      console.warn(
+        "Connexion Socket.IO refusée :",
+        error.message
+      );
+
+      return next(
+        new Error(
+          "Authentification Socket.IO invalide"
+        )
+      );
+    }
+  }
+);
+
+//======================================================
+// SOCKET.IO
+//======================================================
+
+io.on(
+  "connection",
+  (
+    socket
+  ) => {
+    const user =
+      socket.data.user;
+
+    console.log(
+      `Socket.IO connecté : ${socket.id} - utilisateur ${user.id} (${user.role})`
+    );
+
+    socket.emit(
+      "server:connected",
+      {
+        success:
+          true,
+
+        socketId:
+          socket.id,
+
+        user: {
+          id:
+            user.id,
+
+          role:
+            user.role,
+        },
+
+        timestamp:
+          new Date()
+            .toISOString(),
+      }
+    );
+
+    //==================================================
+    // REJOINDRE UNE MACHINE
+    //==================================================
+
+    socket.on(
+      "machine:join",
+      async (
+        {
+          machineId,
+        } = {}
+      ) => {
+        try {
+          const normalizedId =
+            normalizeMachineId(
+              machineId
+            );
+
+          if (!normalizedId) {
+            socket.emit(
+              "machine:error",
+              {
+                message:
+                  "Identifiant machine invalide",
+              }
+            );
+
+            return;
+          }
+
+          //============================================
+          // AUTORISATION
+          //============================================
+
+          const allowed =
+            await canSocketAccessMachine(
+              socket,
+              normalizedId
+            );
+
+          if (!allowed) {
+            console.warn(
+              `Socket ${socket.id} : accès refusé à la machine ${normalizedId}`
+            );
+
+            socket.emit(
+              "machine:error",
+              {
+                machineId:
+                  normalizedId,
+
+                message:
+                  "Accès refusé à cette machine",
+              }
+            );
+
+            return;
+          }
+
+          //============================================
+          // ROOM
+          //============================================
+
+          const room =
+            getMachineRoom(
+              normalizedId
+            );
+
+          await socket.join(
+            room
+          );
+
+          console.log(
+            `Utilisateur ${user.id} rejoint ${room}`
+          );
+
+          //============================================
+          // PRÉSENCE
+          //============================================
+
+          const presence =
+            getMachinePresence(
+              normalizedId
+            );
+
+          socket.emit(
+            presence.online
+              ? "machine:online"
+              : "machine:offline",
+            {
+              machineId:
+                normalizedId,
+
+              online:
+                presence.online,
+
+              status:
+                presence.online
+                  ? "online"
+                  : "offline",
+
+              lastSeen:
+                presence.lastSeen
+                  ? new Date(
+                      presence.lastSeen
+                    ).toISOString()
+                  : null,
+
+              timestamp:
+                new Date()
+                  .toISOString(),
+            }
+          );
+
+          //============================================
+          // DERNIÈRE MESURE
+          //============================================
+
+          if (
+            presence.online &&
+            presence.lastData
+          ) {
+            socket.emit(
+              "machine:update",
+              {
+                ...presence.lastData,
+
+                machineId:
+                  normalizedId,
+
+                online:
+                  true,
+
+                status:
+                  "online",
+              }
+            );
+          }
+        } catch (error) {
+          console.error(
+            "Erreur machine:join :",
+            error
+          );
+
+          socket.emit(
+            "machine:error",
+            {
+              message:
+                "Impossible de rejoindre la machine",
+            }
+          );
+        }
+      }
+    );
+
+    //==================================================
+    // QUITTER UNE MACHINE
+    //==================================================
+
+    socket.on(
+      "machine:leave",
+      (
+        {
+          machineId,
+        } = {}
+      ) => {
+        const normalizedId =
+          normalizeMachineId(
+            machineId
+          );
+
+        if (!normalizedId) {
+          return;
+        }
+
+        socket.leave(
+          getMachineRoom(
+            normalizedId
+          )
+        );
+      }
+    );
+
+    //==================================================
+    // STATUT MACHINE
+    //==================================================
+
+    socket.on(
+      "machine:status",
+      async (
+        {
+          machineId,
+        } = {}
+      ) => {
+        try {
+          const normalizedId =
+            normalizeMachineId(
+              machineId
+            );
+
+          if (!normalizedId) {
+            socket.emit(
+              "machine:error",
+              {
+                message:
+                  "Identifiant machine invalide",
+              }
+            );
+
+            return;
+          }
+
+          const allowed =
+            await canSocketAccessMachine(
+              socket,
+              normalizedId
+            );
+
+          if (!allowed) {
+            socket.emit(
+              "machine:error",
+              {
+                machineId:
+                  normalizedId,
+
+                message:
+                  "Accès refusé à cette machine",
+              }
+            );
+
+            return;
+          }
+
+          const presence =
+            getMachinePresence(
+              normalizedId
+            );
+
+          socket.emit(
+            presence.online
+              ? "machine:online"
+              : "machine:offline",
+            {
+              machineId:
+                normalizedId,
+
+              online:
+                presence.online,
+
+              status:
+                presence.online
+                  ? "online"
+                  : "offline",
+
+              lastSeen:
+                presence.lastSeen
+                  ? new Date(
+                      presence.lastSeen
+                    ).toISOString()
+                  : null,
+
+              timestamp:
+                new Date()
+                  .toISOString(),
+            }
+          );
+        } catch (error) {
+          console.error(
+            "Erreur machine:status :",
+            error
+          );
+
+          socket.emit(
+            "machine:error",
+            {
+              message:
+                "Impossible de récupérer le statut de la machine",
+            }
+          );
+        }
+      }
+    );
+
+    //==================================================
+    // DÉCONNEXION
+    //==================================================
+
+    socket.on(
+      "disconnect",
+      (
+        reason
+      ) => {
+        console.log(
+          "Client Socket.IO déconnecté :",
+          socket.id,
+          reason
+        );
+      }
+    );
+  }
 );
 
 //======================================================
@@ -787,12 +1288,11 @@ app.use(
     req,
     res
   ) => {
-    res
-      .status(
-        404
-      )
+    return res
+      .status(404)
       .json({
-        success: false,
+        success:
+          false,
 
         message:
           "Route API introuvable",
@@ -828,11 +1328,10 @@ app.use(
       )
     ) {
       return res
-        .status(
-          403
-        )
+        .status(403)
         .json({
-          success: false,
+          success:
+            false,
 
           message:
             error.message,
@@ -840,23 +1339,14 @@ app.use(
     }
 
     return res
-      .status(
-        500
-      )
+      .status(500)
       .json({
-        success: false,
+        success:
+          false,
 
         message:
           "Erreur interne du serveur",
 
-        /*
-         * On conserve details pour le moment
-         * pendant le développement.
-         *
-         * Plus tard, en production stricte,
-         * il faudra éviter de renvoyer certains
-         * détails techniques sensibles.
-         */
         details:
           error.message,
       });
@@ -864,254 +1354,7 @@ app.use(
 );
 
 //======================================================
-// SOCKET.IO
-//======================================================
-
-io.on(
-  "connection",
-  (
-    socket
-  ) => {
-    console.log(
-      "Client Socket.IO connecté :",
-      socket.id
-    );
-
-    socket.emit(
-      "server:connected",
-      {
-        success: true,
-
-        socketId:
-          socket.id,
-
-        timestamp:
-          new Date().toISOString(),
-      }
-    );
-
-    //==================================================
-    // REJOINDRE UNE MACHINE
-    //==================================================
-
-    socket.on(
-      "machine:join",
-      (
-        {
-          machineId,
-        } = {}
-      ) => {
-        const normalizedId =
-          normalizeMachineId(
-            machineId
-          );
-
-        if (
-          !normalizedId
-        ) {
-          socket.emit(
-            "machine:error",
-            {
-              message:
-                "Identifiant machine invalide",
-            }
-          );
-
-          return;
-        }
-
-        const room =
-          getMachineRoom(
-            normalizedId
-          );
-
-        socket.join(
-          room
-        );
-
-        const presence =
-          getMachinePresence(
-            normalizedId
-          );
-
-        socket.emit(
-          presence.online
-            ? "machine:online"
-            : "machine:offline",
-          {
-            machineId:
-              normalizedId,
-
-            online:
-              presence.online,
-
-            status:
-              presence.online
-                ? "online"
-                : "offline",
-
-            lastSeen:
-              presence.lastSeen
-                ? new Date(
-                    presence.lastSeen
-                  ).toISOString()
-                : null,
-
-            timestamp:
-              new Date().toISOString(),
-          }
-        );
-
-        /*
-         * Si on possède déjà la dernière mesure,
-         * on l'envoie immédiatement au navigateur.
-         */
-        if (
-          presence.online &&
-          presence.lastData
-        ) {
-          socket.emit(
-            "machine:update",
-            {
-              ...presence.lastData,
-
-              machineId:
-                normalizedId,
-
-              online:
-                true,
-
-              status:
-                "online",
-            }
-          );
-        }
-      }
-    );
-
-    //==================================================
-    // QUITTER UNE MACHINE
-    //==================================================
-
-    socket.on(
-      "machine:leave",
-      (
-        {
-          machineId,
-        } = {}
-      ) => {
-        const normalizedId =
-          normalizeMachineId(
-            machineId
-          );
-
-        if (
-          !normalizedId
-        ) {
-          return;
-        }
-
-        socket.leave(
-          getMachineRoom(
-            normalizedId
-          )
-        );
-      }
-    );
-
-    //==================================================
-    // DEMANDE DU STATUT MACHINE
-    //==================================================
-
-    socket.on(
-      "machine:status",
-      (
-        {
-          machineId,
-        } = {}
-      ) => {
-        const normalizedId =
-          normalizeMachineId(
-            machineId
-          );
-
-        if (
-          !normalizedId
-        ) {
-          socket.emit(
-            "machine:error",
-            {
-              message:
-                "Identifiant machine invalide",
-            }
-          );
-
-          return;
-        }
-
-        const presence =
-          getMachinePresence(
-            normalizedId
-          );
-
-        socket.emit(
-          presence.online
-            ? "machine:online"
-            : "machine:offline",
-          {
-            machineId:
-              normalizedId,
-
-            online:
-              presence.online,
-
-            status:
-              presence.online
-                ? "online"
-                : "offline",
-
-            lastSeen:
-              presence.lastSeen
-                ? new Date(
-                    presence.lastSeen
-                  ).toISOString()
-                : null,
-
-            timestamp:
-              new Date().toISOString(),
-          }
-        );
-      }
-    );
-
-    //==================================================
-    // DÉCONNEXION
-    //==================================================
-
-    socket.on(
-      "disconnect",
-      (
-        reason
-      ) => {
-        console.log(
-          "Client Socket.IO déconnecté :",
-          socket.id,
-          reason
-        );
-
-        /*
-         * On ne met PAS une machine hors ligne ici.
-         *
-         * Cette connexion Socket.IO appartient
-         * au navigateur et non à l'ESP32.
-         */
-      }
-    );
-  }
-);
-
-//======================================================
-// DÉMARRAGE DU SERVEUR
+// DÉMARRAGE
 //======================================================
 
 async function startServer() {
@@ -1119,21 +1362,12 @@ async function startServer() {
     databaseConnected =
       await testDatabaseConnection();
 
-    if (
-      !databaseConnected
-    ) {
+    if (!databaseConnected) {
       throw new Error(
         "Impossible de se connecter à la base MySQL"
       );
     }
 
-    /*
-     * Création / mise à jour automatique
-     * des tables nécessaires.
-     *
-     * Nous ajouterons également ici
-     * la table users dans initDatabase.js.
-     */
     await initializeDatabase();
 
     server.listen(
@@ -1160,7 +1394,7 @@ async function startServer() {
         );
 
         console.log(
-          "SocketIO : OK"
+          "SocketIO : JWT sécurisé"
         );
 
         console.log(
@@ -1184,9 +1418,7 @@ async function startServer() {
         );
       }
     );
-  } catch (
-    error
-  ) {
+  } catch (error) {
     databaseConnected =
       false;
 
@@ -1197,9 +1429,7 @@ async function startServer() {
       error
     );
 
-    process.exit(
-      1
-    );
+    process.exit(1);
   }
 }
 
