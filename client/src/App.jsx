@@ -1,8 +1,12 @@
-import { useEffect, useState } from "react";
+import {
+  useEffect,
+  useState,
+} from "react";
 
 import Navbar from "./components/Navbar.jsx";
 
 import Dashboard from "./pages/Dashboard.jsx";
+import Alerts from "./pages/Alerts.jsx";
 import Settings from "./pages/Settings.jsx";
 import Login from "./pages/Login.jsx";
 import Register from "./pages/Register.jsx";
@@ -10,127 +14,223 @@ import Register from "./pages/Register.jsx";
 import "./App.css";
 
 //======================================================
-// PAGES DE L'APPLICATION
+// PAGES
 //======================================================
 
 const PAGES = {
-  DASHBOARD: "dashboard",
-  SETTINGS: "settings",
+  DASHBOARD:
+    "dashboard",
+
+  ALERTS:
+    "alerts",
+
+  SETTINGS:
+    "settings",
 };
 
 //======================================================
-// PAGES D'AUTHENTIFICATION
+// AUTH
 //======================================================
 
 const AUTH_PAGES = {
-  LOGIN: "login",
-  REGISTER: "register",
+  LOGIN:
+    "login",
+
+  REGISTER:
+    "register",
 };
+
+//======================================================
+// API
+//======================================================
+
+const API_URL =
+  import.meta.env
+    .VITE_API_URL;
+
+//======================================================
+// OUTILS
+//======================================================
+
+function getMachineId(
+  machine
+) {
+  return (
+    machine?.id ??
+    machine?.machineId ??
+    machine?.machine_id ??
+    null
+  );
+}
+
+//======================================================
+// APP
+//======================================================
 
 export default function App() {
   //====================================================
-  // AUTHENTIFICATION
+  // AUTH TOKEN
   //====================================================
 
-  const [token, setToken] = useState(() => {
-    return localStorage.getItem("authToken");
-  });
-
-  const [user, setUser] = useState(null);
-
-  const [machines, setMachines] = useState([]);
-
-  const [selectedMachineId, setSelectedMachineId] =
-    useState(null);
-
-  const [authLoading, setAuthLoading] =
-    useState(Boolean(token));
-
-  const [authPage, setAuthPage] =
-    useState(AUTH_PAGES.LOGIN);
+  const [
+    token,
+    setToken,
+  ] = useState(() =>
+    localStorage.getItem(
+      "authToken"
+    )
+  );
 
   //====================================================
-  // NAVIGATION
+  // UTILISATEUR
   //====================================================
 
-  const [currentPage, setCurrentPage] = useState(
+  const [
+    user,
+    setUser,
+  ] = useState(null);
+
+  //====================================================
+  // MACHINES
+  //====================================================
+
+  const [
+    machines,
+    setMachines,
+  ] = useState([]);
+
+  const [
+    selectedMachineId,
+    setSelectedMachineId,
+  ] = useState(null);
+
+  //====================================================
+  // AUTH LOADING
+  //====================================================
+
+  const [
+    authLoading,
+    setAuthLoading,
+  ] = useState(
+    Boolean(token)
+  );
+
+  //====================================================
+  // PAGE AUTH
+  //====================================================
+
+  const [
+    authPage,
+    setAuthPage,
+  ] = useState(
+    AUTH_PAGES.LOGIN
+  );
+
+  //====================================================
+  // PAGE APPLICATION
+  //====================================================
+
+  const [
+    currentPage,
+    setCurrentPage,
+  ] = useState(
     PAGES.DASHBOARD
   );
 
   //====================================================
-  // VÉRIFICATION DE LA SESSION AU DÉMARRAGE
+  // SESSION EXISTANTE
   //====================================================
 
   useEffect(() => {
     if (!token) {
-      setUser(null);
-      setMachines([]);
-      setSelectedMachineId(null);
-      setAuthLoading(false);
+      setAuthLoading(
+        false
+      );
 
       return;
     }
 
+    let cancelled =
+      false;
+
     async function loadCurrentUser() {
       try {
-        setAuthLoading(true);
-
-        const response = await fetch(
-          `${import.meta.env.VITE_API_URL}/api/auth/me`,
-          {
-            method: "GET",
-
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
+        setAuthLoading(
+          true
         );
 
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(
-            data?.message ||
-              "Session invalide."
+        const response =
+          await fetch(
+            `${API_URL}/api/auth/me`,
+            {
+              headers: {
+                Authorization:
+                  `Bearer ${token}`,
+              },
+            }
           );
-        }
 
-        const currentUser =
-          data?.user || null;
-
-        const currentMachines =
-          Array.isArray(data?.machines)
-            ? data.machines
-            : [];
-
-        if (!currentUser) {
-          throw new Error(
-            "Utilisateur introuvable."
-          );
-        }
-
-        setUser(currentUser);
-
-        setMachines(
-          currentMachines
-        );
+        const data =
+          await response.json();
 
         if (
-          currentMachines.length > 0
+          !response.ok
         ) {
-          setSelectedMachineId(
-            currentMachines[0].id
-          );
-        } else {
-          setSelectedMachineId(
-            null
+          throw new Error(
+            data?.message ||
+              "Session invalide"
           );
         }
+
+        if (cancelled) {
+          return;
+        }
+
+        const receivedUser =
+          data?.user ??
+          data?.data?.user ??
+          null;
+
+        const receivedMachines =
+          data?.machines ??
+          data?.data
+            ?.machines ??
+          [];
+
+        const safeMachines =
+          Array.isArray(
+            receivedMachines
+          )
+            ? receivedMachines
+            : [];
+
+        setUser(
+          receivedUser
+        );
+
+        setMachines(
+          safeMachines
+        );
+
+        setSelectedMachineId(
+          safeMachines.length >
+            0
+            ? getMachineId(
+                safeMachines[
+                  0
+                ]
+              )
+            : null
+        );
       } catch (error) {
         console.error(
-          "Erreur de session :",
+          "Erreur récupération utilisateur :",
           error
         );
+
+        if (cancelled) {
+          return;
+        }
 
         localStorage.removeItem(
           "authToken"
@@ -146,77 +246,97 @@ export default function App() {
           null
         );
 
+        setCurrentPage(
+          PAGES.DASHBOARD
+        );
+
         setAuthPage(
           AUTH_PAGES.LOGIN
         );
       } finally {
-        setAuthLoading(false);
+        if (!cancelled) {
+          setAuthLoading(
+            false
+          );
+        }
       }
     }
 
     loadCurrentUser();
-  }, [token]);
+
+    return () => {
+      cancelled =
+        true;
+    };
+  }, [
+    token,
+  ]);
 
   //====================================================
-  // TRAITEMENT APRÈS CONNEXION / INSCRIPTION
+  // AUTHENTIFICATION RÉUSSIE
   //====================================================
 
   function handleAuthentication(
     authData
   ) {
-    const newToken =
-      authData?.token;
+    const receivedToken =
+      authData?.token ??
+      authData?.data?.token;
 
-    if (!newToken) {
+    const receivedUser =
+      authData?.user ??
+      authData?.data?.user ??
+      null;
+
+    const receivedMachines =
+      authData?.machines ??
+      authData?.data
+        ?.machines ??
+      [];
+
+    if (!receivedToken) {
       console.error(
-        "Aucun token reçu."
+        "Token JWT absent après authentification."
       );
 
       return;
     }
 
-    const authenticatedUser =
-      authData?.user || null;
-
-    const authenticatedMachines =
+    const safeMachines =
       Array.isArray(
-        authData?.machines
+        receivedMachines
       )
-        ? authData.machines
+        ? receivedMachines
         : [];
 
-    // Sauvegarde du JWT
     localStorage.setItem(
       "authToken",
-      newToken
+      receivedToken
     );
 
-    // Mise à jour de la session
-    setToken(newToken);
+    setToken(
+      receivedToken
+    );
 
     setUser(
-      authenticatedUser
+      receivedUser
     );
 
     setMachines(
-      authenticatedMachines
+      safeMachines
     );
 
-    // Sélection automatique de la première machine
-    if (
-      authenticatedMachines.length >
-      0
-    ) {
-      setSelectedMachineId(
-        authenticatedMachines[0].id
-      );
-    } else {
-      setSelectedMachineId(
-        null
-      );
-    }
+    setSelectedMachineId(
+      safeMachines.length >
+        0
+        ? getMachineId(
+            safeMachines[
+              0
+            ]
+          )
+        : null
+    );
 
-    // Retour au dashboard
     setCurrentPage(
       PAGES.DASHBOARD
     );
@@ -227,7 +347,7 @@ export default function App() {
   }
 
   //====================================================
-  // CONNEXION
+  // LOGIN
   //====================================================
 
   function handleLogin(
@@ -239,7 +359,7 @@ export default function App() {
   }
 
   //====================================================
-  // INSCRIPTION
+  // REGISTER
   //====================================================
 
   function handleRegister(
@@ -251,7 +371,7 @@ export default function App() {
   }
 
   //====================================================
-  // DÉCONNEXION
+  // LOGOUT
   //====================================================
 
   function handleLogout() {
@@ -279,20 +399,20 @@ export default function App() {
   }
 
   //====================================================
-  // CHANGEMENT DE MACHINE
+  // CHANGEMENT MACHINE
   //====================================================
 
   function handleMachineChange(
     machineId
   ) {
-    const parsedMachineId =
+    const numericMachineId =
       Number(machineId);
 
     if (
       !Number.isInteger(
-        parsedMachineId
+        numericMachineId
       ) ||
-      parsedMachineId <= 0
+      numericMachineId <= 0
     ) {
       return;
     }
@@ -300,37 +420,66 @@ export default function App() {
     const machineExists =
       machines.some(
         (machine) =>
-          Number(machine.id) ===
-          parsedMachineId
+          Number(
+            getMachineId(
+              machine
+            )
+          ) ===
+          numericMachineId
       );
 
     if (!machineExists) {
-      console.error(
-        "Machine non autorisée."
-      );
-
       return;
     }
 
     setSelectedMachineId(
-      parsedMachineId
-    );
-
-    setCurrentPage(
-      PAGES.DASHBOARD
+      numericMachineId
     );
   }
 
   //====================================================
-  // NAVIGATION DASHBOARD / PARAMÈTRES
+  // NAVIGATION
   //====================================================
 
   function handleNavigate(
     page
   ) {
     if (
-      page === PAGES.SETTINGS
+      page ===
+      PAGES.DASHBOARD
     ) {
+      setCurrentPage(
+        PAGES.DASHBOARD
+      );
+
+      return;
+    }
+
+    if (
+      page ===
+      PAGES.ALERTS
+    ) {
+      setCurrentPage(
+        PAGES.ALERTS
+      );
+
+      return;
+    }
+
+    if (
+      page ===
+      PAGES.SETTINGS
+    ) {
+      if (
+        String(
+          user?.role ??
+            ""
+        ).toLowerCase() !==
+        "manager"
+      ) {
+        return;
+      }
+
       setCurrentPage(
         PAGES.SETTINGS
       );
@@ -343,27 +492,35 @@ export default function App() {
     );
   }
 
-  function openDashboard() {
-    setCurrentPage(
-      PAGES.DASHBOARD
-    );
-  }
+  //====================================================
+  // PARAMÈTRES
+  //====================================================
 
   function openSettings() {
+    if (
+      String(
+        user?.role ??
+          ""
+      ).toLowerCase() !==
+      "manager"
+    ) {
+      return;
+    }
+
     setCurrentPage(
       PAGES.SETTINGS
     );
   }
 
-  //====================================================
-  // NAVIGATION AUTHENTIFICATION
-  //====================================================
-
-  function openLogin() {
-    setAuthPage(
-      AUTH_PAGES.LOGIN
+  function closeSettings() {
+    setCurrentPage(
+      PAGES.DASHBOARD
     );
   }
+
+  //====================================================
+  // AUTH PAGES
+  //====================================================
 
   function openRegister() {
     setAuthPage(
@@ -371,20 +528,36 @@ export default function App() {
     );
   }
 
-  //====================================================
-  // CHARGEMENT DE LA SESSION
-  //====================================================
-
-  if (authLoading) {
-    return (
-      <div className="app-loading">
-        Chargement de votre session...
-      </div>
+  function openLogin() {
+    setAuthPage(
+      AUTH_PAGES.LOGIN
     );
   }
 
   //====================================================
-  // UTILISATEUR NON CONNECTÉ
+  // CHARGEMENT AUTH
+  //====================================================
+
+  if (authLoading) {
+    return (
+      <main className="login-page">
+        <div className="login-card">
+          <div className="login-header">
+            <strong>
+              Diagnostic
+            </strong>
+
+            <span>
+              Vérification de la session...
+            </span>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  //====================================================
+  // NON CONNECTÉ
   //====================================================
 
   if (!token || !user) {
@@ -419,7 +592,7 @@ export default function App() {
   }
 
   //====================================================
-  // APPLICATION CONNECTÉE
+  // APPLICATION
   //====================================================
 
   return (
@@ -454,12 +627,41 @@ export default function App() {
         }
       />
 
-      <main className="app-main">
+      <div className="app-content">
+        {/* ============================================
+            ALERTES
+        ============================================ */}
+
         {currentPage ===
-        PAGES.SETTINGS ? (
+          PAGES.ALERTS && (
+          <Alerts
+            token={
+              token
+            }
+
+            user={
+              user
+            }
+
+            machines={
+              machines
+            }
+
+            machineId={
+              selectedMachineId
+            }
+          />
+        )}
+
+        {/* ============================================
+            PARAMÈTRES
+        ============================================ */}
+
+        {currentPage ===
+          PAGES.SETTINGS && (
           <Settings
             onBack={
-              openDashboard
+              closeSettings
             }
 
             token={
@@ -474,7 +676,14 @@ export default function App() {
               selectedMachineId
             }
           />
-        ) : (
+        )}
+
+        {/* ============================================
+            DASHBOARD
+        ============================================ */}
+
+        {currentPage ===
+          PAGES.DASHBOARD && (
           <Dashboard
             onOpenSettings={
               openSettings
@@ -497,7 +706,7 @@ export default function App() {
             }
           />
         )}
-      </main>
+      </div>
     </div>
   );
 }
