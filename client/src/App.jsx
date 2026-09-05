@@ -7,6 +7,7 @@ import Navbar from "./components/Navbar.jsx";
 
 import Dashboard from "./pages/Dashboard.jsx";
 import Alerts from "./pages/Alerts.jsx";
+import Thresholds from "./pages/Thresholds.jsx";
 import Settings from "./pages/Settings.jsx";
 import Login from "./pages/Login.jsx";
 import Register from "./pages/Register.jsx";
@@ -23,6 +24,9 @@ const PAGES = {
 
   ALERTS:
     "alerts",
+
+  THRESHOLDS:
+    "thresholds",
 
   SETTINGS:
     "settings",
@@ -69,7 +73,7 @@ function getMachineId(
 
 export default function App() {
   //====================================================
-  // AUTH TOKEN
+  // TOKEN
   //====================================================
 
   const [
@@ -105,7 +109,7 @@ export default function App() {
   ] = useState(null);
 
   //====================================================
-  // AUTH LOADING
+  // CHARGEMENT AUTH
   //====================================================
 
   const [
@@ -193,8 +197,7 @@ export default function App() {
 
         const receivedMachines =
           data?.machines ??
-          data?.data
-            ?.machines ??
+          data?.data?.machines ??
           [];
 
         const safeMachines =
@@ -216,9 +219,7 @@ export default function App() {
           safeMachines.length >
             0
             ? getMachineId(
-                safeMachines[
-                  0
-                ]
+                safeMachines[0]
               )
             : null
         );
@@ -273,7 +274,7 @@ export default function App() {
   ]);
 
   //====================================================
-  // AUTHENTIFICATION RÉUSSIE
+  // AUTHENTIFICATION
   //====================================================
 
   function handleAuthentication(
@@ -290,8 +291,7 @@ export default function App() {
 
     const receivedMachines =
       authData?.machines ??
-      authData?.data
-        ?.machines ??
+      authData?.data?.machines ??
       [];
 
     if (!receivedToken) {
@@ -330,9 +330,7 @@ export default function App() {
       safeMachines.length >
         0
         ? getMachineId(
-            safeMachines[
-              0
-            ]
+            safeMachines[0]
           )
         : null
     );
@@ -468,6 +466,17 @@ export default function App() {
 
     if (
       page ===
+      PAGES.THRESHOLDS
+    ) {
+      setCurrentPage(
+        PAGES.THRESHOLDS
+      );
+
+      return;
+    }
+
+    if (
+      page ===
       PAGES.SETTINGS
     ) {
       if (
@@ -535,7 +544,7 @@ export default function App() {
   }
 
   //====================================================
-  // CHARGEMENT AUTH
+  // CHARGEMENT SESSION
   //====================================================
 
   if (authLoading) {
@@ -560,7 +569,10 @@ export default function App() {
   // NON CONNECTÉ
   //====================================================
 
-  if (!token || !user) {
+  if (
+    !token ||
+    !user
+  ) {
     if (
       authPage ===
       AUTH_PAGES.REGISTER
@@ -629,12 +641,66 @@ export default function App() {
 
       <div className="app-content">
         {/* ============================================
+            DASHBOARD
+        ============================================ */}
+
+        {currentPage ===
+          PAGES.DASHBOARD && (
+          <Dashboard
+            onOpenSettings={
+              openSettings
+            }
+
+            token={
+              token
+            }
+
+            user={
+              user
+            }
+
+            machines={
+              machines
+            }
+
+            machineId={
+              selectedMachineId
+            }
+          />
+        )}
+
+        {/* ============================================
             ALERTES
         ============================================ */}
 
         {currentPage ===
           PAGES.ALERTS && (
           <Alerts
+            token={
+              token
+            }
+
+            user={
+              user
+            }
+
+            machines={
+              machines
+            }
+
+            machineId={
+              selectedMachineId
+            }
+          />
+        )}
+
+        {/* ============================================
+            SEUILS
+        ============================================ */}
+
+        {currentPage ===
+          PAGES.THRESHOLDS && (
+          <Thresholds
             token={
               token
             }
@@ -670,35 +736,6 @@ export default function App() {
 
             user={
               user
-            }
-
-            machineId={
-              selectedMachineId
-            }
-          />
-        )}
-
-        {/* ============================================
-            DASHBOARD
-        ============================================ */}
-
-        {currentPage ===
-          PAGES.DASHBOARD && (
-          <Dashboard
-            onOpenSettings={
-              openSettings
-            }
-
-            token={
-              token
-            }
-
-            user={
-              user
-            }
-
-            machines={
-              machines
             }
 
             machineId={
