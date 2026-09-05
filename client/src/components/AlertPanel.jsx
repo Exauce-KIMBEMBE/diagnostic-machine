@@ -15,6 +15,10 @@ import {
   acknowledgeAlert,
 } from "../services/api.js";
 
+//======================================================
+// LABELS
+//======================================================
+
 const LEVEL_LABELS = {
   critical: "Critique",
   warning: "Attention",
@@ -25,37 +29,55 @@ const PARAMETER_LABELS = {
   voltage: "Tension",
   current: "Courant",
   power: "Puissance active",
+
   apparentPower:
     "Puissance apparente",
+
   apparent_power:
     "Puissance apparente",
+
   reactivePower:
     "Puissance réactive",
+
   reactive_power:
     "Puissance réactive",
+
   energy: "Énergie",
   frequency: "Fréquence",
+
   powerFactor:
     "Facteur de puissance",
+
   power_factor:
     "Facteur de puissance",
+
   temperature:
     "Température",
-  flow: "Débit",
+
+  flow:
+    "Débit",
+
   levelPercent:
     "Niveau du réservoir",
+
   level_percent:
     "Niveau du réservoir",
+
   levelCm:
     "Hauteur de liquide",
+
   level_cm:
     "Hauteur de liquide",
+
   distanceCm:
     "Distance du capteur",
+
   distance_cm:
     "Distance du capteur",
+
   volumeLiters:
     "Volume disponible",
+
   volume_liters:
     "Volume disponible",
 };
@@ -64,11 +86,20 @@ const SOURCE_LABELS = {
   L1: "Ligne 1",
   L2: "Ligne 2",
   L3: "Ligne 3",
+
   temperature:
     "Température",
-  flow: "Débit",
-  tank: "Réservoir",
+
+  flow:
+    "Débit",
+
+  tank:
+    "Réservoir",
 };
+
+//======================================================
+// DATE
+//======================================================
 
 function formatDate(value) {
   if (!value) {
@@ -99,6 +130,10 @@ function formatDate(value) {
   );
 }
 
+//======================================================
+// ALERT ID
+//======================================================
+
 function getAlertId(alert) {
   return (
     alert?.id ??
@@ -110,29 +145,29 @@ function getAlertId(alert) {
   );
 }
 
+//======================================================
+// NIVEAU ALERTE
+//======================================================
+
 function getAlertLevel(alert) {
   const rawLevel =
     String(
       alert?.level ??
-      alert?.severity ??
-      alert?.status ??
-      "warning"
+        alert?.severity ??
+        alert?.status ??
+        "warning"
     ).toLowerCase();
 
   if (
-    rawLevel ===
-      "critical" ||
-    rawLevel ===
-      "critique" ||
-    rawLevel ===
-      "danger"
+    rawLevel === "critical" ||
+    rawLevel === "critique" ||
+    rawLevel === "danger"
   ) {
     return "critical";
   }
 
   if (
-    rawLevel ===
-      "normal" ||
+    rawLevel === "normal" ||
     rawLevel === "ok"
   ) {
     return "normal";
@@ -140,6 +175,10 @@ function getAlertLevel(alert) {
 
   return "warning";
 }
+
+//======================================================
+// ICÔNE
+//======================================================
 
 function getAlertIcon(level) {
   if (
@@ -150,6 +189,10 @@ function getAlertIcon(level) {
 
   return AlertTriangle;
 }
+
+//======================================================
+// VALEURS
+//======================================================
 
 function getAlertValue(
   alert,
@@ -199,6 +242,10 @@ function formatMeasurement(
   }`;
 }
 
+//======================================================
+// LABEL SOURCE
+//======================================================
+
 function getSourceLabel(source) {
   return (
     SOURCE_LABELS[
@@ -208,6 +255,10 @@ function getSourceLabel(source) {
     "Source inconnue"
   );
 }
+
+//======================================================
+// LABEL PARAMÈTRE
+//======================================================
 
 function getParameterLabel(
   parameterName
@@ -224,6 +275,10 @@ function getParameterLabel(
   );
 }
 
+//======================================================
+// ERREUR
+//======================================================
+
 function extractErrorMessage(
   error
 ) {
@@ -237,19 +292,54 @@ function extractErrorMessage(
   );
 }
 
+//======================================================
+// COMPOSANT
+//======================================================
+
 export default function AlertPanel({
   alerts = [],
+
+  token,
+
+  user,
+
   onAcknowledged,
 }) {
+  //====================================================
+  // RÔLE UTILISATEUR
+  //====================================================
+
+  const userRole =
+    String(
+      user?.role ??
+        "client"
+    ).toLowerCase();
+
+  const isManager =
+    userRole ===
+    "manager";
+
+  //====================================================
+  // FILTRE
+  //====================================================
+
   const [
     filter,
     setFilter,
   ] = useState("all");
 
+  //====================================================
+  // ACQUITTEMENT
+  //====================================================
+
   const [
     acknowledgingId,
     setAcknowledgingId,
   ] = useState(null);
+
+  //====================================================
+  // MESSAGE
+  //====================================================
 
   const [
     message,
@@ -260,6 +350,10 @@ export default function AlertPanel({
     messageType,
     setMessageType,
   ] = useState("");
+
+  //====================================================
+  // NORMALISATION ALERTES
+  //====================================================
 
   const normalizedAlerts =
     useMemo(() => {
@@ -362,11 +456,13 @@ export default function AlertPanel({
               "Valeur anormale détectée.",
           };
         })
+
         .filter(
           (alert) =>
             alert.level !==
             "normal"
         )
+
         .sort(
           (
             first,
@@ -415,7 +511,13 @@ export default function AlertPanel({
             );
           }
         );
-    }, [alerts]);
+    }, [
+      alerts,
+    ]);
+
+  //====================================================
+  // FILTRAGE
+  //====================================================
 
   const filteredAlerts =
     useMemo(() => {
@@ -435,6 +537,10 @@ export default function AlertPanel({
       filter,
     ]);
 
+  //====================================================
+  // COMPTEURS
+  //====================================================
+
   const criticalCount =
     useMemo(
       () =>
@@ -443,7 +549,9 @@ export default function AlertPanel({
             alert.level ===
             "critical"
         ).length,
-      [normalizedAlerts]
+      [
+        normalizedAlerts,
+      ]
     );
 
   const warningCount =
@@ -454,28 +562,59 @@ export default function AlertPanel({
             alert.level ===
             "warning"
         ).length,
-      [normalizedAlerts]
+      [
+        normalizedAlerts,
+      ]
     );
+
+  //====================================================
+  // MESSAGES
+  //====================================================
 
   function showMessage(
     type,
     text
   ) {
     setMessageType(type);
+
     setMessage(text);
   }
 
   function clearMessage() {
     setMessage("");
+
     setMessageType("");
   }
+
+  //====================================================
+  // ACQUITTER UNE ALERTE
+  //====================================================
 
   async function handleAcknowledge(
     alertId
   ) {
+    if (!isManager) {
+      showMessage(
+        "error",
+        "Seul un manager peut acquitter une alerte."
+      );
+
+      return;
+    }
+
+    if (!token) {
+      showMessage(
+        "error",
+        "Session utilisateur invalide."
+      );
+
+      return;
+    }
+
     if (
       alertId === null ||
-      alertId === undefined
+      alertId === undefined ||
+      alertId === ""
     ) {
       showMessage(
         "error",
@@ -493,7 +632,8 @@ export default function AlertPanel({
       clearMessage();
 
       await acknowledgeAlert(
-        alertId
+        alertId,
+        token
       );
 
       onAcknowledged?.(
@@ -510,6 +650,31 @@ export default function AlertPanel({
         error
       );
 
+      const status =
+        error?.response?.status;
+
+      if (
+        status === 401
+      ) {
+        showMessage(
+          "error",
+          "Votre session n'est plus valide."
+        );
+
+        return;
+      }
+
+      if (
+        status === 403
+      ) {
+        showMessage(
+          "error",
+          "Vous n'êtes pas autorisé à acquitter cette alerte."
+        );
+
+        return;
+      }
+
       showMessage(
         "error",
         extractErrorMessage(
@@ -522,6 +687,10 @@ export default function AlertPanel({
       );
     }
   }
+
+  //====================================================
+  // AFFICHAGE
+  //====================================================
 
   return (
     <section className="alert-panel">
@@ -536,9 +705,9 @@ export default function AlertPanel({
           </h2>
 
           <p className="alert-panel-description">
-            Consulte et acquitte les
-            anomalies actuellement
-            détectées.
+            {isManager
+              ? "Consulte et acquitte les anomalies actuellement détectées."
+              : "Consulte les anomalies actuellement détectées."}
           </p>
         </div>
 
@@ -549,6 +718,10 @@ export default function AlertPanel({
         </span>
       </div>
 
+      {/* ==============================================
+          FILTRES
+      ============================================== */}
+
       <div className="alert-filters">
         <button
           className={
@@ -558,7 +731,9 @@ export default function AlertPanel({
           }
           type="button"
           onClick={() =>
-            setFilter("all")
+            setFilter(
+              "all"
+            )
           }
         >
           Toutes
@@ -587,7 +762,9 @@ export default function AlertPanel({
           Critiques
 
           <span>
-            {criticalCount}
+            {
+              criticalCount
+            }
           </span>
         </button>
 
@@ -608,10 +785,16 @@ export default function AlertPanel({
           Attention
 
           <span>
-            {warningCount}
+            {
+              warningCount
+            }
           </span>
         </button>
       </div>
+
+      {/* ==============================================
+          MESSAGE
+      ============================================== */}
 
       {message ? (
         <p
@@ -626,6 +809,10 @@ export default function AlertPanel({
           {message}
         </p>
       ) : null}
+
+      {/* ==============================================
+          AUCUNE ALERTE
+      ============================================== */}
 
       {normalizedAlerts.length ===
       0 ? (
@@ -761,8 +948,12 @@ export default function AlertPanel({
                     </div>
                   </div>
 
-                  {alert.id !==
-                    null &&
+                  {/* ==================================
+                      MANAGER UNIQUEMENT
+                  ================================== */}
+
+                  {isManager &&
+                  alert.id !== null &&
                   alert.id !==
                     undefined ? (
                     <button
