@@ -16,7 +16,9 @@ import {
   getThresholds,
 } from "../services/api.js";
 
-const MACHINE_ID = 1;
+//======================================================
+// OUTILS
+//======================================================
 
 function extractArray(response) {
   const data =
@@ -24,32 +26,93 @@ function extractArray(response) {
     response?.data ??
     response;
 
-  return Array.isArray(data)
-    ? data
-    : [];
+  if (Array.isArray(data)) {
+    return data;
+  }
+
+  if (
+    Array.isArray(
+      data?.items
+    )
+  ) {
+    return data.items;
+  }
+
+  if (
+    Array.isArray(
+      data?.results
+    )
+  ) {
+    return data.results;
+  }
+
+  return [];
 }
 
-function normalizeThreshold(threshold) {
-  if (!threshold) {
+//======================================================
+// NORMALISATION MACHINE ID
+//======================================================
+
+function normalizeMachineId(
+  machineId
+) {
+  const numericMachineId =
+    Number(machineId);
+
+  if (
+    !Number.isInteger(
+      numericMachineId
+    ) ||
+    numericMachineId <= 0
+  ) {
     return null;
   }
+
+  return numericMachineId;
+}
+
+//======================================================
+// NORMALISATION SEUIL
+//======================================================
+
+function normalizeThreshold(
+  threshold,
+  machineId
+) {
+  if (
+    !threshold ||
+    typeof threshold !==
+      "object"
+  ) {
+    return null;
+  }
+
+  const normalizedMachineId =
+    Number(
+      threshold.machineId ??
+        threshold.machine_id ??
+        machineId
+    );
 
   return {
     ...threshold,
 
     id:
       threshold.id ??
-      threshold.thresholdId,
+      threshold.thresholdId ??
+      threshold.threshold_id,
 
     machineId:
-      Number(
-        threshold.machineId ??
-          threshold.machine_id ??
-          MACHINE_ID
-      ) || MACHINE_ID,
+      Number.isInteger(
+        normalizedMachineId
+      ) &&
+      normalizedMachineId > 0
+        ? normalizedMachineId
+        : machineId,
 
     source:
-      threshold.source ?? "",
+      threshold.source ??
+      "",
 
     parameterName:
       threshold.parameterName ??
@@ -77,85 +140,240 @@ function normalizeThreshold(threshold) {
       null,
 
     unit:
-      threshold.unit ?? "",
+      threshold.unit ??
+      "",
   };
 }
 
+//======================================================
+// SETTINGS
+//======================================================
+
 export default function Settings({
   onBack,
+
+  token,
+
+  user,
+
+  machineId,
 }) {
-  const [thresholds, setThresholds] =
-    useState([]);
+  //====================================================
+  // MACHINE
+  //====================================================
 
-  const [loading, setLoading] =
-    useState(true);
+  const normalizedMachineId =
+    normalizeMachineId(
+      machineId
+    );
 
-  const [error, setError] =
-    useState("");
+  //====================================================
+  // UTILISATEUR
+  //====================================================
+
+  const userRole =
+    String(
+      user?.role ??
+        "client"
+    ).toLowerCase();
+
+  const isManager =
+    userRole ===
+    "manager";
+
+  //====================================================
+  // ÉTATS
+  //====================================================
+
+  const [
+    thresholds,
+    setThresholds,
+  ] = useState([]);
+
+  const [
+    loading,
+    setLoading,
+  ] = useState(false);
+
+  const [
+    error,
+    setError,
+  ] = useState("");
+
+  //====================================================
+  // CHARGEMENT DES SEUILS
+  //====================================================
 
   const loadThresholds =
-    useCallback(async () => {
-      try {
-        setLoading(true);
-        setError("");
+    useCallback(
+      async () => {
+        if (
+          !normalizedMachineId
+        ) {
+          setThresholds([]);
 
-        const response =
-          await getThresholds(MACHINE_ID);
+          setError(
+            "Aucune machine sélectionnée."
+          );
 
-        const receivedThresholds =
-          extractArray(response)
-            .map(normalizeThreshold)
-            .filter(Boolean);
+          setLoading(false);
 
-        setThresholds(
-          receivedThresholds
-        );
-      } catch (requestError) {
-        console.error(
-          "Erreur chargement des seuils :",
+          return;
+        }
+
+        if (!token) {
+          setThresholds([]);
+
+          setError(
+            "Session utilisateur invalide."
+          );
+
+          setLoading(false);
+
+          return;
+        }
+
+        try {
+          setLoading(true);
+
+          setError("");
+
+          const response =
+            await getThresholds(
+              normalizedMachineId,
+              token
+            );
+
+          const receivedThresholds =
+            extractArray(
+              response
+            )
+              .map(
+                (
+                  threshold
+                ) =>
+                  normalizeThreshold(
+                    threshold,
+                    normalizedMachineId
+                  )
+              )
+              .filter(
+                Boolean
+              );
+
+          setThresholds(
+            receivedThresholds
+          );
+        } catch (
           requestError
-        );
+        ) {
+          console.error(
+            "Erreur chargement des seuils :",
+            requestError
+          );
 
-        setError(
-          requestError.response?.data
-            ?.message ||
-            requestError.message ||
-            "Impossible de charger les seuils"
-        );
-      } finally {
-        setLoading(false);
-      }
-    }, []);
+          const status =
+            requestError
+              ?.response
+              ?.status;
+
+          if (
+            status === 401
+          ) {
+            setError(
+              "Votre session n'est plus valide."
+            );
+
+            return;
+          }
+
+          if (
+            status === 403
+          ) {
+            setError(
+              "Vous n'avez pas accès à cette machine."
+            );
+
+            return;
+          }
+
+          setError(
+            requestError
+              ?.response
+              ?.data
+              ?.message ||
+              requestError
+                ?.message ||
+              "Impossible de charger les seuils."
+          );
+        } finally {
+          setLoading(
+            false
+          );
+        }
+      },
+      [
+        normalizedMachineId,
+        token,
+      ]
+    );
+
+  //====================================================
+  // RECHARGEMENT AU CHANGEMENT DE MACHINE
+  //====================================================
 
   useEffect(() => {
+    setThresholds([]);
+
+    setError("");
+
     loadThresholds();
-  }, [loadThresholds]);
+  }, [
+    loadThresholds,
+  ]);
+
+  //====================================================
+  // SEUIL ENREGISTRÉ
+  //====================================================
 
   function handleSaved(
     savedThresholdResponse
   ) {
     const savedThreshold =
       normalizeThreshold(
-        savedThresholdResponse?.data
+        savedThresholdResponse
+          ?.data
           ?.data ??
-          savedThresholdResponse?.data ??
           savedThresholdResponse
+            ?.data ??
+          savedThresholdResponse,
+        normalizedMachineId
       );
 
-    if (!savedThreshold) {
+    if (
+      !savedThreshold
+    ) {
       return;
     }
 
     setThresholds(
-      (previousThresholds) => {
+      (
+        previousThresholds
+      ) => {
         const existingIndex =
           previousThresholds.findIndex(
             (item) =>
-              Number(item.id) ===
-              Number(savedThreshold.id)
+              Number(
+                item.id
+              ) ===
+              Number(
+                savedThreshold.id
+              )
           );
 
-        if (existingIndex === -1) {
+        if (
+          existingIndex === -1
+        ) {
           return [
             ...previousThresholds,
             savedThreshold,
@@ -164,8 +382,12 @@ export default function Settings({
 
         return previousThresholds.map(
           (item) =>
-            Number(item.id) ===
-            Number(savedThreshold.id)
+            Number(
+              item.id
+            ) ===
+            Number(
+              savedThreshold.id
+            )
               ? {
                   ...item,
                   ...savedThreshold,
@@ -176,18 +398,148 @@ export default function Settings({
     );
   }
 
+  //====================================================
+  // SEUIL SUPPRIMÉ
+  //====================================================
+
   function handleDeleted(
     thresholdId
   ) {
     setThresholds(
-      (previousThresholds) =>
+      (
+        previousThresholds
+      ) =>
         previousThresholds.filter(
           (item) =>
-            Number(item.id) !==
-            Number(thresholdId)
+            Number(
+              item.id
+            ) !==
+            Number(
+              thresholdId
+            )
         )
     );
   }
+
+  //====================================================
+  // AUCUNE MACHINE
+  //====================================================
+
+  if (
+    !normalizedMachineId
+  ) {
+    return (
+      <main className="settings-page">
+        <header className="settings-header">
+          <div className="settings-heading">
+            <span className="dashboard-eyebrow">
+              Configuration
+            </span>
+
+            <h1>
+              <Settings2
+                size={30}
+              />
+
+              Paramètres
+            </h1>
+          </div>
+
+          <div className="settings-actions">
+            <button
+              className="back-button"
+              type="button"
+              onClick={
+                onBack
+              }
+            >
+              <ArrowLeft
+                size={18}
+              />
+
+              Retour au tableau de bord
+            </button>
+          </div>
+        </header>
+
+        <section className="dashboard-error">
+          <strong>
+            Aucune machine sélectionnée
+          </strong>
+
+          <p>
+            Sélectionnez une machine
+            avant d'ouvrir ses paramètres.
+          </p>
+        </section>
+      </main>
+    );
+  }
+
+  //====================================================
+  // PROTECTION CLIENT
+  //====================================================
+
+  if (!isManager) {
+    return (
+      <main className="settings-page">
+        <header className="settings-header">
+          <div className="settings-heading">
+            <span className="dashboard-eyebrow">
+              Configuration
+            </span>
+
+            <h1>
+              <Settings2
+                size={30}
+              />
+
+              Paramètres
+            </h1>
+
+            <p>
+              Configuration de la machine
+              sélectionnée.
+            </p>
+          </div>
+
+          <div className="settings-actions">
+            <button
+              className="back-button"
+              type="button"
+              onClick={
+                onBack
+              }
+            >
+              <ArrowLeft
+                size={18}
+              />
+
+              Retour au tableau de bord
+            </button>
+          </div>
+        </header>
+
+        <section className="dashboard-error">
+          <strong>
+            Accès réservé au manager
+          </strong>
+
+          <p>
+            Votre compte peut consulter
+            les données de la machine,
+            les alertes et les seuils,
+            mais il ne peut pas modifier
+            sa configuration.
+          </p>
+        </section>
+      </main>
+    );
+  }
+
+  //====================================================
+  // AFFICHAGE MANAGER
+  //====================================================
 
   return (
     <main className="settings-page">
@@ -198,14 +550,21 @@ export default function Settings({
           </span>
 
           <h1>
-            <Settings2 size={30} />
+            <Settings2
+              size={30}
+            />
+
             Paramètres
           </h1>
 
           <p>
             Définis les seuils minimaux,
-            maximaux, d’avertissement et
-            critiques de la machine.
+            maximaux, d'avertissement et
+            critiques de la machine{" "}
+            <strong>
+              #{normalizedMachineId}
+            </strong>
+            .
           </p>
         </div>
 
@@ -213,8 +572,12 @@ export default function Settings({
           <button
             className="refresh-button"
             type="button"
-            onClick={loadThresholds}
-            disabled={loading}
+            onClick={
+              loadThresholds
+            }
+            disabled={
+              loading
+            }
           >
             <RefreshCw
               size={18}
@@ -233,13 +596,22 @@ export default function Settings({
           <button
             className="back-button"
             type="button"
-            onClick={onBack}
+            onClick={
+              onBack
+            }
           >
-            <ArrowLeft size={18} />
+            <ArrowLeft
+              size={18}
+            />
+
             Retour au tableau de bord
           </button>
         </div>
       </header>
+
+      {/* ==============================================
+          CHARGEMENT
+      ============================================== */}
 
       {loading && (
         <section className="dashboard-message">
@@ -247,29 +619,60 @@ export default function Settings({
         </section>
       )}
 
+      {/* ==============================================
+          ERREUR
+      ============================================== */}
+
       {error && (
         <section className="dashboard-error">
-          <strong>Erreur</strong>
-          <p>{error}</p>
+          <strong>
+            Erreur
+          </strong>
+
+          <p>
+            {error}
+          </p>
 
           <button
             className="retry-button"
             type="button"
-            onClick={loadThresholds}
+            onClick={
+              loadThresholds
+            }
           >
             Réessayer
           </button>
         </section>
       )}
 
-      {!loading && !error && (
-        <ThresholdForm
-          machineId={MACHINE_ID}
-          thresholds={thresholds}
-          onSaved={handleSaved}
-          onDeleted={handleDeleted}
-        />
-      )}
+      {/* ==============================================
+          FORMULAIRE
+      ============================================== */}
+
+      {!loading &&
+        !error && (
+          <ThresholdForm
+            machineId={
+              normalizedMachineId
+            }
+
+            token={
+              token
+            }
+
+            thresholds={
+              thresholds
+            }
+
+            onSaved={
+              handleSaved
+            }
+
+            onDeleted={
+              handleDeleted
+            }
+          />
+        )}
     </main>
   );
 }
