@@ -75,7 +75,403 @@ function createToken(
 }
 
 //======================================================
-// LOGIN
+// INSCRIPTION
+//======================================================
+
+export async function register(
+  req,
+  res
+) {
+  const connection =
+    await pool.getConnection();
+
+  try {
+    const name =
+      String(
+        req.body?.name ??
+        ""
+      ).trim();
+
+    const email =
+      normalizeEmail(
+        req.body?.email
+      );
+
+    const password =
+      String(
+        req.body?.password ??
+        ""
+      );
+
+    const machineId =
+      Number(
+        req.body?.machineId
+      );
+
+    //==================================================
+    // VALIDATION
+    //==================================================
+
+    if (!name) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+
+          message:
+            "Nom requis",
+        });
+    }
+
+    if (!email) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+
+          message:
+            "Email requis",
+        });
+    }
+
+    if (!password) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+
+          message:
+            "Mot de passe requis",
+        });
+    }
+
+    if (
+      password.length < 8
+    ) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+
+          message:
+            "Le mot de passe doit contenir au moins 8 caractères",
+        });
+    }
+
+    if (
+      !Number.isInteger(
+        machineId
+      ) ||
+      machineId <= 0
+    ) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+
+          message:
+            "Identifiant machine invalide",
+        });
+    }
+
+    //==================================================
+    // TRANSACTION
+    //==================================================
+
+    await connection.beginTransaction();
+
+    //==================================================
+    // VÉRIFICATION EMAIL
+    //==================================================
+
+    const [
+      existingUsers,
+    ] =
+      await connection.query(
+        `
+        SELECT
+          id
+        FROM users
+        WHERE email = ?
+        LIMIT 1
+        `,
+        [
+          email,
+        ]
+      );
+
+    if (
+      existingUsers.length >
+      0
+    ) {
+      await connection.rollback();
+
+      return res
+        .status(409)
+        .json({
+          success: false,
+
+          message:
+            "Un compte existe déjà avec cet email",
+        });
+    }
+
+    //==================================================
+    // VÉRIFICATION MACHINE
+    //==================================================
+
+    const [
+      machineRows,
+    ] =
+      await connection.query(
+        `
+        SELECT
+          id,
+          name,
+          serial_number,
+          location
+        FROM machines
+        WHERE id = ?
+        LIMIT 1
+        `,
+        [
+          machineId,
+        ]
+      );
+
+    if (
+      machineRows.length === 0
+    ) {
+      await connection.rollback();
+
+      return res
+        .status(404)
+        .json({
+          success: false,
+
+          message:
+            "Machine introuvable",
+        });
+    }
+
+    //==================================================
+    // VÉRIFICATION MACHINE DÉJÀ ATTRIBUÉE
+    //==================================================
+
+    /*
+     * Chaque client doit être rattaché
+     * uniquement à sa machine.
+     *
+     * Cette vérification empêche aussi
+     * qu'une même machine soit attribuée
+     * à plusieurs clients.
+     */
+
+    const [
+      assignedMachineRows,
+    ] =
+      await connection.query(
+        `
+        SELECT
+          um.user_id,
+          u.email
+        FROM user_machines AS um
+
+        INNER JOIN users AS u
+          ON u.id = um.user_id
+
+        WHERE um.machine_id = ?
+          AND u.role = 'client'
+
+        LIMIT 1
+        `,
+        [
+          machineId,
+        ]
+      );
+
+    if (
+      assignedMachineRows.length >
+      0
+    ) {
+      await connection.rollback();
+
+      return res
+        .status(409)
+        .json({
+          success: false,
+
+          message:
+            "Cette machine est déjà associée à un client",
+        });
+    }
+
+    //==================================================
+    // HASH DU MOT DE PASSE
+    //==================================================
+
+    const passwordHash =
+      await bcrypt.hash(
+        password,
+        12
+      );
+
+    //==================================================
+    // CRÉATION DU COMPTE
+    //==================================================
+
+    /*
+     * IMPORTANT :
+     *
+     * Le rôle est imposé ici.
+     *
+     * Même si le navigateur envoie :
+     *
+     * role = manager
+     *
+     * le serveur créera toujours :
+     *
+     * role = client
+     */
+
+    const [
+      result,
+    ] =
+      await connection.query(
+        `
+        INSERT INTO users (
+          name,
+          email,
+          password_hash,
+          role,
+          active
+        )
+        VALUES (
+          ?,
+          ?,
+          ?,
+          'client',
+          TRUE
+        )
+        `,
+        [
+          name,
+          email,
+          passwordHash,
+        ]
+      );
+
+    const userId =
+      Number(
+        result.insertId
+      );
+
+    //==================================================
+    // ASSOCIATION UTILISATEUR / MACHINE
+    //==================================================
+
+    await connection.query(
+      `
+      INSERT INTO user_machines (
+        user_id,
+        machine_id
+      )
+      VALUES (
+        ?,
+        ?
+      )
+      `,
+      [
+        userId,
+        machineId,
+      ]
+    );
+
+    //==================================================
+    // VALIDATION TRANSACTION
+    //==================================================
+
+    await connection.commit();
+
+    //==================================================
+    // UTILISATEUR
+    //==================================================
+
+    const user = {
+      id:
+        userId,
+
+      name,
+
+      email,
+
+      role:
+        "client",
+    };
+
+    //==================================================
+    // TOKEN
+    //==================================================
+
+    const token =
+      createToken(
+        user
+      );
+
+    //==================================================
+    // RÉPONSE
+    //==================================================
+
+    return res
+      .status(201)
+      .json({
+        success: true,
+
+        message:
+          "Compte créé avec succès",
+
+        token,
+
+        user,
+
+        machines: [
+          machineRows[0],
+        ],
+      });
+  } catch (
+    error
+  ) {
+    try {
+      await connection.rollback();
+    } catch (
+      rollbackError
+    ) {
+      console.error(
+        "Erreur rollback :",
+        rollbackError
+      );
+    }
+
+    console.error(
+      "Erreur pendant l'inscription :",
+      error
+    );
+
+    return res
+      .status(500)
+      .json({
+        success: false,
+
+        message:
+          "Erreur pendant la création du compte",
+      });
+  } finally {
+    connection.release();
+  }
+}
+
+//======================================================
+// CONNEXION
 //======================================================
 
 export async function login(
@@ -142,11 +538,6 @@ export async function login(
     if (
       rows.length === 0
     ) {
-      /*
-       * On ne précise pas si l'email existe
-       * afin d'éviter de révéler les comptes
-       * présents dans la base.
-       */
       return res
         .status(401)
         .json({
@@ -180,7 +571,7 @@ export async function login(
     }
 
     //==================================================
-    // VÉRIFICATION DU RÔLE
+    // VÉRIFICATION RÔLE
     //==================================================
 
     if (
@@ -191,11 +582,6 @@ export async function login(
         user.role
       )
     ) {
-      console.error(
-        "Rôle utilisateur invalide :",
-        user.role
-      );
-
       return res
         .status(403)
         .json({
@@ -207,7 +593,7 @@ export async function login(
     }
 
     //==================================================
-    // VÉRIFICATION MOT DE PASSE
+    // MOT DE PASSE
     //==================================================
 
     const passwordValid =
@@ -235,9 +621,6 @@ export async function login(
 
     let machines = [];
 
-    /*
-     * Un manager a accès à toutes les machines.
-     */
     if (
       user.role ===
       "manager"
@@ -262,10 +645,6 @@ export async function login(
       machines =
         machineRows;
     } else {
-      /*
-       * Un client n'a accès qu'aux machines
-       * qui lui sont attribuées dans user_machines.
-       */
       const [
         machineRows,
       ] =
@@ -419,7 +798,7 @@ export async function getCurrentUser(
       rows[0];
 
     //==================================================
-    // COMPTE DÉSACTIVÉ
+    // COMPTE ACTIF
     //==================================================
 
     if (
@@ -532,7 +911,7 @@ export async function getCurrentUser(
     error
   ) {
     console.error(
-      "Erreur pendant la récupération de l'utilisateur :",
+      "Erreur récupération utilisateur :",
       error
     );
 
