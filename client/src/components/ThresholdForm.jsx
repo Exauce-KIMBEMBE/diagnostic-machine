@@ -17,6 +17,10 @@ import {
   saveThreshold,
 } from "../services/api.js";
 
+//======================================================
+// SOURCES
+//======================================================
+
 const SOURCE_OPTIONS = [
   {
     value: "L1",
@@ -43,6 +47,10 @@ const SOURCE_OPTIONS = [
     label: "Réservoir",
   },
 ];
+
+//======================================================
+// PARAMÈTRES ÉLECTRIQUES
+//======================================================
 
 const ELECTRICAL_PARAMETERS = [
   {
@@ -86,6 +94,10 @@ const ELECTRICAL_PARAMETERS = [
     unit: "",
   },
 ];
+
+//======================================================
+// PARAMÈTRES PAR SOURCE
+//======================================================
 
 const PARAMETER_OPTIONS = {
   L1: ELECTRICAL_PARAMETERS,
@@ -132,35 +144,88 @@ const PARAMETER_OPTIONS = {
   ],
 };
 
-const PARAMETER_LABELS = Object.values(
-  PARAMETER_OPTIONS
-)
-  .flat()
-  .reduce(
-    (labels, parameter) => ({
-      ...labels,
-      [parameter.value]:
-        parameter.label,
-    }),
-    {}
-  );
+//======================================================
+// LABELS PARAMÈTRES
+//======================================================
+
+const PARAMETER_LABELS =
+  Object.values(
+    PARAMETER_OPTIONS
+  )
+    .flat()
+    .reduce(
+      (
+        labels,
+        parameter
+      ) => ({
+        ...labels,
+
+        [parameter.value]:
+          parameter.label,
+      }),
+      {}
+    );
+
+//======================================================
+// MACHINE ID
+//======================================================
+
+function normalizeMachineId(
+  machineId
+) {
+  const numericMachineId =
+    Number(machineId);
+
+  if (
+    !Number.isInteger(
+      numericMachineId
+    ) ||
+    numericMachineId <= 0
+  ) {
+    return null;
+  }
+
+  return numericMachineId;
+}
+
+//======================================================
+// FORMULAIRE VIDE
+//======================================================
 
 function createEmptyForm(
-  machineId = 1
+  machineId
 ) {
+  const normalizedMachineId =
+    normalizeMachineId(
+      machineId
+    );
+
   return {
     id: null,
+
     machineId:
-      Number(machineId) || 1,
+      normalizedMachineId,
+
     source: "L1",
-    parameterName: "voltage",
+
+    parameterName:
+      "voltage",
+
     minimumValue: "",
+
     maximumValue: "",
+
     warningValue: "",
+
     criticalValue: "",
+
     unit: "V",
   };
 }
+
+//======================================================
+// OUTILS
+//======================================================
 
 function getValue(
   object,
@@ -176,8 +241,31 @@ function getValue(
 
 function normalizeThreshold(
   threshold,
-  machineId = 1
+  machineId
 ) {
+  const normalizedMachineId =
+    normalizeMachineId(
+      machineId
+    );
+
+  if (
+    !threshold ||
+    typeof threshold !==
+      "object"
+  ) {
+    return null;
+  }
+
+  const thresholdMachineId =
+    normalizeMachineId(
+      getValue(
+        threshold,
+        "machineId",
+        "machine_id"
+      )
+    ) ??
+    normalizedMachineId;
+
   return {
     ...threshold,
 
@@ -188,15 +276,7 @@ function normalizeThreshold(
       null,
 
     machineId:
-      Number(
-        getValue(
-          threshold,
-          "machineId",
-          "machine_id"
-        )
-      ) ||
-      Number(machineId) ||
-      1,
+      thresholdMachineId,
 
     source:
       threshold?.source ??
@@ -299,7 +379,8 @@ function getSourceLabel(
   return (
     SOURCE_OPTIONS.find(
       (option) =>
-        option.value === source
+        option.value ===
+        source
     )?.label ??
     source
   );
@@ -316,17 +397,33 @@ function getParameterLabel(
   );
 }
 
+//======================================================
+// COMPOSANT
+//======================================================
+
 export default function ThresholdForm({
-  machineId = 1,
+  machineId,
+
+  token,
+
   thresholds = [],
+
   onSaved,
+
   onDeleted,
 }) {
+  const normalizedMachineId =
+    normalizeMachineId(
+      machineId
+    );
+
   const [
     form,
     setForm,
   ] = useState(() =>
-    createEmptyForm(machineId)
+    createEmptyForm(
+      normalizedMachineId
+    )
   );
 
   const [
@@ -354,24 +451,39 @@ export default function ThresholdForm({
     setMessageType,
   ] = useState("");
 
+  //====================================================
+  // CHANGEMENT DE MACHINE
+  //====================================================
+
   useEffect(() => {
-    if (!editingId) {
-      setForm(
-        createEmptyForm(
-          machineId
-        )
-      );
-    }
+    setEditingId(null);
+
+    setForm(
+      createEmptyForm(
+        normalizedMachineId
+      )
+    );
+
+    setMessage("");
+
+    setMessageType("");
   }, [
-    machineId,
-    editingId,
+    normalizedMachineId,
   ]);
+
+  //====================================================
+  // PARAMÈTRES DISPONIBLES
+  //====================================================
 
   const availableParameters =
     PARAMETER_OPTIONS[
       form.source
     ] ??
     PARAMETER_OPTIONS.L1;
+
+  //====================================================
+  // SEUILS NORMALISÉS
+  //====================================================
 
   const normalizedThresholds =
     useMemo(() => {
@@ -384,12 +496,14 @@ export default function ThresholdForm({
       }
 
       return thresholds
-        .map((threshold) =>
-          normalizeThreshold(
-            threshold,
-            machineId
-          )
+        .map(
+          (threshold) =>
+            normalizeThreshold(
+              threshold,
+              normalizedMachineId
+            )
         )
+        .filter(Boolean)
         .sort(
           (
             first,
@@ -424,21 +538,31 @@ export default function ThresholdForm({
         );
     }, [
       thresholds,
-      machineId,
+      normalizedMachineId,
     ]);
+
+  //====================================================
+  // MESSAGE
+  //====================================================
 
   function showMessage(
     type,
     text
   ) {
     setMessageType(type);
+
     setMessage(text);
   }
 
   function clearMessage() {
     setMessage("");
+
     setMessageType("");
   }
+
+  //====================================================
+  // MODIFICATION DU FORMULAIRE
+  //====================================================
 
   function handleChange(
     event
@@ -463,11 +587,17 @@ export default function ThresholdForm({
         sourceParameters[0];
 
       setForm(
-        (previousForm) => ({
+        (
+          previousForm
+        ) => ({
           ...previousForm,
-          source: value,
+
+          source:
+            value,
+
           parameterName:
             firstParameter.value,
+
           unit:
             firstParameter.unit,
         })
@@ -488,10 +618,14 @@ export default function ThresholdForm({
         );
 
       setForm(
-        (previousForm) => ({
+        (
+          previousForm
+        ) => ({
           ...previousForm,
+
           parameterName:
             value,
+
           unit:
             selectedParameter
               ?.unit ??
@@ -503,23 +637,36 @@ export default function ThresholdForm({
     }
 
     setForm(
-      (previousForm) => ({
+      (
+        previousForm
+      ) => ({
         ...previousForm,
-        [name]: value,
+
+        [name]:
+          value,
       })
     );
   }
 
+  //====================================================
+  // RÉINITIALISATION
+  //====================================================
+
   function resetForm() {
     setForm(
       createEmptyForm(
-        machineId
+        normalizedMachineId
       )
     );
 
     setEditingId(null);
+
     clearMessage();
   }
+
+  //====================================================
+  // MODIFICATION D'UN SEUIL
+  //====================================================
 
   function handleEdit(
     threshold
@@ -527,14 +674,22 @@ export default function ThresholdForm({
     const normalized =
       normalizeThreshold(
         threshold,
-        machineId
+        normalizedMachineId
       );
+
+    if (!normalized) {
+      return;
+    }
 
     setForm({
       ...createEmptyForm(
-        machineId
+        normalizedMachineId
       ),
+
       ...normalized,
+
+      machineId:
+        normalizedMachineId,
 
       minimumValue:
         normalized.minimumValue ??
@@ -561,11 +716,27 @@ export default function ThresholdForm({
 
     window.scrollTo({
       top: 0,
-      behavior: "smooth",
+
+      behavior:
+        "smooth",
     });
   }
 
+  //====================================================
+  // VALIDATION
+  //====================================================
+
   function validateForm() {
+    if (
+      !normalizedMachineId
+    ) {
+      return "Aucune machine valide n'est sélectionnée.";
+    }
+
+    if (!token) {
+      return "Session utilisateur invalide.";
+    }
+
     const minimum =
       toNullableNumber(
         form.minimumValue
@@ -640,6 +811,10 @@ export default function ThresholdForm({
     return "";
   }
 
+  //====================================================
+  // ENREGISTREMENT
+  //====================================================
+
   async function handleSubmit(
     event
   ) {
@@ -661,6 +836,7 @@ export default function ThresholdForm({
 
     try {
       setSaving(true);
+
       clearMessage();
 
       const payload = {
@@ -669,8 +845,7 @@ export default function ThresholdForm({
           null,
 
         machineId:
-          Number(machineId) ||
-          1,
+          normalizedMachineId,
 
         source:
           form.source,
@@ -705,7 +880,8 @@ export default function ThresholdForm({
 
       const response =
         await saveThreshold(
-          payload
+          payload,
+          token
         );
 
       const savedThreshold =
@@ -713,7 +889,7 @@ export default function ThresholdForm({
           extractSavedThreshold(
             response
           ),
-          machineId
+          normalizedMachineId
         );
 
       onSaved?.(
@@ -722,7 +898,7 @@ export default function ThresholdForm({
 
       setForm(
         createEmptyForm(
-          machineId
+          normalizedMachineId
         )
       );
 
@@ -730,6 +906,7 @@ export default function ThresholdForm({
 
       showMessage(
         "success",
+
         editingId
           ? "Seuil modifié avec succès."
           : "Seuil enregistré avec succès."
@@ -740,8 +917,34 @@ export default function ThresholdForm({
         error
       );
 
+      const status =
+        error?.response?.status;
+
+      if (
+        status === 401
+      ) {
+        showMessage(
+          "error",
+          "Votre session n'est plus valide."
+        );
+
+        return;
+      }
+
+      if (
+        status === 403
+      ) {
+        showMessage(
+          "error",
+          "Vous n'êtes pas autorisé à modifier les seuils."
+        );
+
+        return;
+      }
+
       showMessage(
         "error",
+
         error?.response?.data
           ?.message ??
           error?.message ??
@@ -752,16 +955,42 @@ export default function ThresholdForm({
     }
   }
 
+  //====================================================
+  // SUPPRESSION
+  //====================================================
+
   async function handleDelete(
     threshold
   ) {
     const normalized =
       normalizeThreshold(
         threshold,
-        machineId
+        normalizedMachineId
       );
 
-    if (!normalized.id) {
+    if (
+      !normalizedMachineId
+    ) {
+      showMessage(
+        "error",
+        "Aucune machine valide n'est sélectionnée."
+      );
+
+      return;
+    }
+
+    if (!token) {
+      showMessage(
+        "error",
+        "Session utilisateur invalide."
+      );
+
+      return;
+    }
+
+    if (
+      !normalized?.id
+    ) {
       showMessage(
         "error",
         "Identifiant du seuil introuvable."
@@ -798,16 +1027,21 @@ export default function ThresholdForm({
 
       await deleteThreshold(
         normalized.id,
-        machineId
+        normalizedMachineId,
+        token
       );
 
       if (
-        Number(editingId) ===
-        Number(normalized.id)
+        Number(
+          editingId
+        ) ===
+        Number(
+          normalized.id
+        )
       ) {
         setForm(
           createEmptyForm(
-            machineId
+            normalizedMachineId
           )
         );
 
@@ -828,8 +1062,34 @@ export default function ThresholdForm({
         error
       );
 
+      const status =
+        error?.response?.status;
+
+      if (
+        status === 401
+      ) {
+        showMessage(
+          "error",
+          "Votre session n'est plus valide."
+        );
+
+        return;
+      }
+
+      if (
+        status === 403
+      ) {
+        showMessage(
+          "error",
+          "Vous n'êtes pas autorisé à supprimer les seuils."
+        );
+
+        return;
+      }
+
       showMessage(
         "error",
+
         error?.response?.data
           ?.message ??
           error?.message ??
@@ -839,6 +1099,33 @@ export default function ThresholdForm({
       setDeletingId(null);
     }
   }
+
+  //====================================================
+  // AUCUNE MACHINE
+  //====================================================
+
+  if (
+    !normalizedMachineId
+  ) {
+    return (
+      <section className="threshold-panel">
+        <div className="threshold-empty-state">
+          <p>
+            Aucune machine sélectionnée.
+          </p>
+
+          <span>
+            Sélectionne une machine avant
+            de modifier ses seuils.
+          </span>
+        </div>
+      </section>
+    );
+  }
+
+  //====================================================
+  // AFFICHAGE
+  //====================================================
 
   return (
     <section className="threshold-panel">
@@ -857,7 +1144,11 @@ export default function ThresholdForm({
           <p className="threshold-description">
             Définis les limites utilisées
             pour détecter les anomalies de
-            la machine.
+            la machine{" "}
+            <strong>
+              #{normalizedMachineId}
+            </strong>
+            .
           </p>
         </div>
 
@@ -872,11 +1163,18 @@ export default function ThresholdForm({
               saving
             }
           >
-            <Plus size={18} />
+            <Plus
+              size={18}
+            />
+
             Nouveau seuil
           </button>
         ) : null}
       </div>
+
+      {/* ==============================================
+          FORMULAIRE
+      ============================================== */}
 
       <form
         className="threshold-form"
@@ -1073,7 +1371,9 @@ export default function ThresholdForm({
               saving
             }
           >
-            <Save size={18} />
+            <Save
+              size={18}
+            />
 
             {saving
               ? "Enregistrement..."
@@ -1101,6 +1401,10 @@ export default function ThresholdForm({
         </div>
       </form>
 
+      {/* ==============================================
+          MESSAGE
+      ============================================== */}
+
       {message ? (
         <p
           className={`threshold-message threshold-message-${messageType}`}
@@ -1114,6 +1418,10 @@ export default function ThresholdForm({
           {message}
         </p>
       ) : null}
+
+      {/* ==============================================
+          LISTE
+      ============================================== */}
 
       <div className="threshold-list-header">
         <div>
