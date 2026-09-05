@@ -2,23 +2,30 @@ import axios from "axios";
 
 import {
   API_URL,
-  DEFAULT_MACHINE_ID,
 } from "../config/defaults.js";
+
+//======================================================
+// INSTANCE AXIOS
+//======================================================
 
 export const api = axios.create({
   baseURL: `${API_URL}/api`,
+
   timeout: 10000,
 
   headers: {
-    "Content-Type": "application/json",
+    "Content-Type":
+      "application/json",
   },
 });
 
-/*
- * Transforme une valeur en nombre sans convertir
- * une chaîne vide ou null en 0 involontairement.
- */
-function toNullableNumber(value) {
+//======================================================
+// OUTILS
+//======================================================
+
+function toNullableNumber(
+  value
+) {
   if (
     value === null ||
     value === undefined ||
@@ -27,151 +34,341 @@ function toNullableNumber(value) {
     return null;
   }
 
-  const numericValue = Number(value);
+  const numericValue =
+    Number(value);
 
-  return Number.isFinite(numericValue)
+  return Number.isFinite(
+    numericValue
+  )
     ? numericValue
     : null;
 }
 
-function normalizeMachineId(machineId) {
-  const numericMachineId = Number(machineId);
+//======================================================
+// MACHINE ID
+//======================================================
 
-  return Number.isFinite(numericMachineId) &&
-    numericMachineId > 0
-    ? numericMachineId
-    : DEFAULT_MACHINE_ID;
+function normalizeMachineId(
+  machineId
+) {
+  const numericMachineId =
+    Number(machineId);
+
+  if (
+    !Number.isInteger(
+      numericMachineId
+    ) ||
+    numericMachineId <= 0
+  ) {
+    throw new Error(
+      "Identifiant de machine invalide"
+    );
+  }
+
+  return numericMachineId;
 }
 
-function extractErrorMessage(error) {
+//======================================================
+// JWT
+//======================================================
+
+function getStoredToken() {
+  if (
+    typeof window ===
+    "undefined"
+  ) {
+    return null;
+  }
+
+  return localStorage.getItem(
+    "authToken"
+  );
+}
+
+function createAuthConfig(
+  token,
+  config = {}
+) {
+  const authToken =
+    token ||
+    getStoredToken();
+
+  const headers = {
+    ...(config.headers || {}),
+  };
+
+  if (authToken) {
+    headers.Authorization =
+      `Bearer ${authToken}`;
+  }
+
+  return {
+    ...config,
+    headers,
+  };
+}
+
+//======================================================
+// ERREURS
+//======================================================
+
+function extractErrorMessage(
+  error
+) {
   return (
-    error?.response?.data?.message ||
-    error?.response?.data?.error ||
+    error?.response?.data
+      ?.message ||
+    error?.response?.data
+      ?.error ||
     error?.message ||
     "Erreur de communication avec le serveur"
   );
 }
 
+//======================================================
+// INTERCEPTEUR REQUÊTES
+//======================================================
+
+api.interceptors.request.use(
+  (config) => {
+    const token =
+      getStoredToken();
+
+    if (token) {
+      config.headers =
+        config.headers || {};
+
+      if (
+        !config.headers
+          .Authorization
+      ) {
+        config.headers.Authorization =
+          `Bearer ${token}`;
+      }
+    }
+
+    return config;
+  },
+
+  (error) =>
+    Promise.reject(error)
+);
+
+//======================================================
+// INTERCEPTEUR RÉPONSES
+//======================================================
+
 api.interceptors.response.use(
-  (response) => response,
+  (response) =>
+    response,
 
   (error) => {
     const message =
-      extractErrorMessage(error);
+      extractErrorMessage(
+        error
+      );
 
-    console.error("Erreur API :", message);
+    console.error(
+      "Erreur API :",
+      message
+    );
 
-    return Promise.reject(error);
+    return Promise.reject(
+      error
+    );
   }
 );
 
-/*
- * ===============================
- * ÉTAT DE LA MACHINE
- * ===============================
- */
+//======================================================
+// ÉTAT DE LA MACHINE
+//======================================================
 
 export async function getMachineState(
-  machineId = DEFAULT_MACHINE_ID
+  machineId,
+  token
 ) {
-  const response = await api.get("/state", {
-    params: {
-      machineId:
-        normalizeMachineId(machineId),
-    },
-  });
+  const normalizedMachineId =
+    normalizeMachineId(
+      machineId
+    );
+
+  const response =
+    await api.get(
+      "/state",
+
+      createAuthConfig(
+        token,
+        {
+          params: {
+            machineId:
+              normalizedMachineId,
+          },
+        }
+      )
+    );
 
   return response.data;
 }
 
-/*
- * ===============================
- * HISTORIQUE
- * ===============================
- */
+//======================================================
+// HISTORIQUE
+//======================================================
 
 export async function getHistory({
   limit = 100,
-  machineId = DEFAULT_MACHINE_ID,
-} = {}) {
-  const normalizedLimit = Math.max(
-    1,
-    Number(limit) || 100
-  );
 
-  const response = await api.get("/history", {
-    params: {
-      limit: normalizedLimit,
-      machineId:
-        normalizeMachineId(machineId),
-    },
-  });
+  machineId,
+
+  token,
+} = {}) {
+  const normalizedMachineId =
+    normalizeMachineId(
+      machineId
+    );
+
+  const normalizedLimit =
+    Math.max(
+      1,
+      Number(limit) || 100
+    );
+
+  const response =
+    await api.get(
+      "/history",
+
+      createAuthConfig(
+        token,
+        {
+          params: {
+            limit:
+              normalizedLimit,
+
+            machineId:
+              normalizedMachineId,
+          },
+        }
+      )
+    );
 
   return response.data;
 }
 
 export async function getHistoryByPeriod({
   period = "24h",
-  machineId = DEFAULT_MACHINE_ID,
+
+  machineId,
+
+  token,
 } = {}) {
-  const response = await api.get(
-    "/history/period",
-    {
-      params: {
-        period: period || "24h",
-        machineId:
-          normalizeMachineId(machineId),
-      },
-    }
-  );
+  const normalizedMachineId =
+    normalizeMachineId(
+      machineId
+    );
+
+  const response =
+    await api.get(
+      "/history/period",
+
+      createAuthConfig(
+        token,
+        {
+          params: {
+            period:
+              period ||
+              "24h",
+
+            machineId:
+              normalizedMachineId,
+          },
+        }
+      )
+    );
 
   return response.data;
 }
 
-/*
- * ===============================
- * ALERTES
- * ===============================
- */
+//======================================================
+// ALERTES
+//======================================================
 
 export async function getAlerts({
   limit = 100,
-  machineId = DEFAULT_MACHINE_ID,
-} = {}) {
-  const normalizedLimit = Math.max(
-    1,
-    Number(limit) || 100
-  );
 
-  const response = await api.get("/alerts", {
-    params: {
-      limit: normalizedLimit,
-      machineId:
-        normalizeMachineId(machineId),
-    },
-  });
+  machineId,
+
+  token,
+} = {}) {
+  const normalizedMachineId =
+    normalizeMachineId(
+      machineId
+    );
+
+  const normalizedLimit =
+    Math.max(
+      1,
+      Number(limit) || 100
+    );
+
+  const response =
+    await api.get(
+      "/alerts",
+
+      createAuthConfig(
+        token,
+        {
+          params: {
+            limit:
+              normalizedLimit,
+
+            machineId:
+              normalizedMachineId,
+          },
+        }
+      )
+    );
 
   return response.data;
 }
+
+//======================================================
+// ALERTES ACTIVES
+//======================================================
 
 export async function getActiveAlerts(
-  machineId = DEFAULT_MACHINE_ID
+  machineId,
+  token
 ) {
-  const response = await api.get(
-    "/alerts/active",
-    {
-      params: {
-        machineId:
-          normalizeMachineId(machineId),
-      },
-    }
-  );
+  const normalizedMachineId =
+    normalizeMachineId(
+      machineId
+    );
+
+  const response =
+    await api.get(
+      "/alerts/active",
+
+      createAuthConfig(
+        token,
+        {
+          params: {
+            machineId:
+              normalizedMachineId,
+          },
+        }
+      )
+    );
 
   return response.data;
 }
 
+//======================================================
+// ACQUITTEMENT ALERTE
+// MANAGER UNIQUEMENT CÔTÉ BACKEND
+//======================================================
+
 export async function acknowledgeAlert(
-  alertId
+  alertId,
+  token
 ) {
   if (
     alertId === null ||
@@ -183,39 +380,61 @@ export async function acknowledgeAlert(
     );
   }
 
-  const response = await api.patch(
-    `/alerts/${encodeURIComponent(
-      alertId
-    )}/acknowledge`
-  );
+  const response =
+    await api.patch(
+      `/alerts/${encodeURIComponent(
+        alertId
+      )}/acknowledge`,
+
+      {},
+
+      createAuthConfig(
+        token
+      )
+    );
 
   return response.data;
 }
 
-/*
- * ===============================
- * SEUILS
- * ===============================
- */
+//======================================================
+// SEUILS
+//======================================================
 
 export async function getThresholds(
-  machineId = DEFAULT_MACHINE_ID
+  machineId,
+  token
 ) {
-  const response = await api.get(
-    "/thresholds",
-    {
-      params: {
-        machineId:
-          normalizeMachineId(machineId),
-      },
-    }
-  );
+  const normalizedMachineId =
+    normalizeMachineId(
+      machineId
+    );
+
+  const response =
+    await api.get(
+      "/thresholds",
+
+      createAuthConfig(
+        token,
+        {
+          params: {
+            machineId:
+              normalizedMachineId,
+          },
+        }
+      )
+    );
 
   return response.data;
 }
 
+//======================================================
+// ENREGISTRER UN SEUIL
+// MANAGER UNIQUEMENT CÔTÉ BACKEND
+//======================================================
+
 export async function saveThreshold(
-  data = {}
+  data = {},
+  token
 ) {
   if (!data.source) {
     throw new Error(
@@ -233,50 +452,71 @@ export async function saveThreshold(
     );
   }
 
-  const payload = {
-    machineId: normalizeMachineId(
+  const machineId =
+    normalizeMachineId(
       data.machineId ??
         data.machine_id
-    ),
+    );
 
-    source: data.source,
+  const payload = {
+    machineId,
+
+    source:
+      data.source,
 
     parameterName,
 
-    minimumValue: toNullableNumber(
-      data.minimumValue ??
-        data.minimum_value
-    ),
+    minimumValue:
+      toNullableNumber(
+        data.minimumValue ??
+          data.minimum_value
+      ),
 
-    maximumValue: toNullableNumber(
-      data.maximumValue ??
-        data.maximum_value
-    ),
+    maximumValue:
+      toNullableNumber(
+        data.maximumValue ??
+          data.maximum_value
+      ),
 
-    warningValue: toNullableNumber(
-      data.warningValue ??
-        data.warning_value
-    ),
+    warningValue:
+      toNullableNumber(
+        data.warningValue ??
+          data.warning_value
+      ),
 
-    criticalValue: toNullableNumber(
-      data.criticalValue ??
-        data.critical_value
-    ),
+    criticalValue:
+      toNullableNumber(
+        data.criticalValue ??
+          data.critical_value
+      ),
 
-    unit: data.unit ?? "",
+    unit:
+      data.unit ?? "",
   };
 
-  const response = await api.post(
-    "/thresholds",
-    payload
-  );
+  const response =
+    await api.post(
+      "/thresholds",
+
+      payload,
+
+      createAuthConfig(
+        token
+      )
+    );
 
   return response.data;
 }
 
+//======================================================
+// SUPPRIMER UN SEUIL
+// MANAGER UNIQUEMENT CÔTÉ BACKEND
+//======================================================
+
 export async function deleteThreshold(
   id,
-  machineId = DEFAULT_MACHINE_ID
+  machineId,
+  token
 ) {
   if (
     id === null ||
@@ -288,81 +528,123 @@ export async function deleteThreshold(
     );
   }
 
-  const response = await api.delete(
-    `/thresholds/${encodeURIComponent(id)}`,
-    {
-      params: {
-        machineId:
-          normalizeMachineId(machineId),
-      },
-    }
-  );
+  const normalizedMachineId =
+    normalizeMachineId(
+      machineId
+    );
+
+  const response =
+    await api.delete(
+      `/thresholds/${encodeURIComponent(
+        id
+      )}`,
+
+      createAuthConfig(
+        token,
+        {
+          params: {
+            machineId:
+              normalizedMachineId,
+          },
+        }
+      )
+    );
 
   return response.data;
 }
 
-/*
- * ===============================
- * CONFIGURATION MACHINE
- * ===============================
- */
+//======================================================
+// CONFIGURATION MACHINE
+//======================================================
 
 export async function getMachineConfiguration(
-  machineId = DEFAULT_MACHINE_ID
+  machineId,
+  token
 ) {
   const normalizedMachineId =
-    normalizeMachineId(machineId);
+    normalizeMachineId(
+      machineId
+    );
 
-  const response = await api.get(
-    `/configuration/${normalizedMachineId}`
-  );
+  const response =
+    await api.get(
+      `/configuration/${normalizedMachineId}`,
+
+      createAuthConfig(
+        token
+      )
+    );
 
   return response.data;
 }
 
+//======================================================
+// ENREGISTRER CONFIGURATION
+// MANAGER UNIQUEMENT CÔTÉ BACKEND
+//======================================================
+
 export async function saveMachineConfiguration(
-  machineId = DEFAULT_MACHINE_ID,
-  configuration = {}
+  machineId,
+  configuration = {},
+  token
 ) {
   const normalizedMachineId =
-    normalizeMachineId(machineId);
+    normalizeMachineId(
+      machineId
+    );
 
   const payload = {
     ultrasonicOffsetCm:
       toNullableNumber(
-        configuration.ultrasonicOffsetCm ??
-          configuration.ultrasonic_offset_cm
+        configuration
+          .ultrasonicOffsetCm ??
+          configuration
+            .ultrasonic_offset_cm
       ) ?? 0,
 
     reservoirHeightCm:
       toNullableNumber(
-        configuration.reservoirHeightCm ??
-          configuration.reservoir_height_cm
+        configuration
+          .reservoirHeightCm ??
+          configuration
+            .reservoir_height_cm
       ) ?? 0,
 
     reservoirCapacityLiters:
       toNullableNumber(
-        configuration.reservoirCapacityLiters ??
-          configuration.reservoir_capacity_liters
+        configuration
+          .reservoirCapacityLiters ??
+          configuration
+            .reservoir_capacity_liters
       ) ?? 0,
 
     temperatureOffsetC:
       toNullableNumber(
-        configuration.temperatureOffsetC ??
-          configuration.temperature_offset_c
+        configuration
+          .temperatureOffsetC ??
+          configuration
+            .temperature_offset_c
       ) ?? 0,
   };
 
-  const response = await api.put(
-    `/configuration/${normalizedMachineId}`,
-    payload
-  );
+  const response =
+    await api.put(
+      `/configuration/${normalizedMachineId}`,
+
+      payload,
+
+      createAuthConfig(
+        token
+      )
+    );
 
   return response.data;
 }
 
-/*
- * Conservé pour la compatibilité avec les fichiers
- * qui importent encore API_URL depuis services/api.js.
- */
-export { API_URL };
+//======================================================
+// API URL
+//======================================================
+
+export {
+  API_URL,
+};
