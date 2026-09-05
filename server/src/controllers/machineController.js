@@ -40,12 +40,18 @@ function toNumber(
     : defaultValue;
 }
 
-function getMachineId(value) {
+//======================================================
+
+function getMachineId(
+  value
+) {
   const machineId =
     Number(value);
 
   if (
-    !Number.isInteger(machineId) ||
+    !Number.isInteger(
+      machineId
+    ) ||
     machineId <= 0
   ) {
     return null;
@@ -53,6 +59,8 @@ function getMachineId(value) {
 
   return machineId;
 }
+
+//======================================================
 
 function extractMachineId(
   data = {}
@@ -65,6 +73,8 @@ function extractMachineId(
   );
 }
 
+//======================================================
+
 function getHistoryLimit(
   value
 ) {
@@ -72,7 +82,9 @@ function getHistoryLimit(
     Number(value);
 
   if (
-    !Number.isInteger(limit) ||
+    !Number.isInteger(
+      limit
+    ) ||
     limit <= 0
   ) {
     return 100;
@@ -83,6 +95,8 @@ function getHistoryLimit(
     1000
   );
 }
+
+//======================================================
 
 function normalizePercentage(
   value
@@ -96,17 +110,113 @@ function normalizePercentage(
   );
 }
 
+//======================================================
+
 function pushAlerts(
   destination,
   alerts
 ) {
   if (
-    Array.isArray(alerts)
+    Array.isArray(
+      alerts
+    )
   ) {
     destination.push(
       ...alerts
     );
   }
+}
+
+//======================================================
+// CRÉATION D'UN ÉTAT INDÉPENDANT
+//======================================================
+
+function createMachineState(
+  machineId
+) {
+  /*
+   * IMPORTANT :
+   *
+   * On ne travaille pas directement
+   * sur l'objet global machineState.
+   *
+   * Chaque mesure reçue construit
+   * son propre état.
+   *
+   * Cela évite qu'une machine écrase
+   * les informations d'une autre.
+   */
+
+  return {
+    ...machineState,
+
+    machineId,
+
+    online:
+      true,
+
+    status:
+      "online",
+
+    lines: {
+      L1: {
+        ...(
+          machineState.lines
+            ?.L1 ??
+          {}
+        ),
+      },
+
+      L2: {
+        ...(
+          machineState.lines
+            ?.L2 ??
+          {}
+        ),
+      },
+
+      L3: {
+        ...(
+          machineState.lines
+            ?.L3 ??
+          {}
+        ),
+      },
+    },
+
+    temperature: {
+      ...(
+        machineState.temperature ??
+        {}
+      ),
+    },
+
+    flow: {
+      ...(
+        machineState.flow ??
+        {}
+      ),
+    },
+
+    tank: {
+      ...(
+        machineState.tank ??
+        {}
+      ),
+    },
+
+    alerts: [],
+  };
+}
+
+//======================================================
+// ROOM SOCKET.IO MACHINE
+//======================================================
+
+function getMachineRoom(
+  machineId
+) {
+  return `machine:${machineId}`;
 }
 
 /*
@@ -119,90 +229,153 @@ export function getMachineState(
   req,
   res
 ) {
-  const requestedMachineId =
-    req.query.machineId
-      ? getMachineId(
-          req.query.machineId
-        )
-      : null;
+  try {
+    /*
+     * requireMachineAccess a déjà :
+     *
+     * - validé machineId
+     * - vérifié les permissions
+     * - placé l'identifiant dans
+     *   req.machineId
+     */
 
-  if (
-    req.query.machineId &&
-    !requestedMachineId
-  ) {
-    return res.status(
-      400
-    ).json({
-      success: false,
-      message:
-        "Identifiant machine invalide",
-    });
-  }
-
-  /*
-   * Lecture du statut en mémoire.
-   * Aucune requête MySQL n’est effectuée.
-   */
-  const getMachinePresence =
-    req.app.get(
-      "getMachinePresence"
-    );
-
-  if (
-    requestedMachineId &&
-    typeof getMachinePresence ===
-      "function"
-  ) {
-    const presence =
-      getMachinePresence(
-        requestedMachineId
+    const machineId =
+      getMachineId(
+        req.machineId
       );
 
-    if (!presence.online) {
+    if (!machineId) {
+      return res
+        .status(400)
+        .json({
+          success:
+            false,
+
+          message:
+            "Identifiant machine invalide",
+        });
+    }
+
+    //==================================================
+    // PRÉSENCE EN MÉMOIRE
+    //==================================================
+
+    const getMachinePresence =
+      req.app.get(
+        "getMachinePresence"
+      );
+
+    if (
+      typeof getMachinePresence !==
+      "function"
+    ) {
       return res.json({
-        success: true,
-        machineId:
-          requestedMachineId,
-        online: false,
-        status: "offline",
+        success:
+          true,
+
+        machineId,
+
+        online:
+          false,
+
+        status:
+          "offline",
+
+        lastSeen:
+          null,
+
+        data:
+          null,
+      });
+    }
+
+    const presence =
+      getMachinePresence(
+        machineId
+      );
+
+    //==================================================
+    // MACHINE HORS LIGNE
+    //==================================================
+
+    if (
+      !presence.online
+    ) {
+      return res.json({
+        success:
+          true,
+
+        machineId,
+
+        online:
+          false,
+
+        status:
+          "offline",
+
         lastSeen:
           presence.lastSeen
             ? new Date(
                 presence.lastSeen
               ).toISOString()
             : null,
-        data: null,
+
+        data:
+          presence.lastData ??
+          null,
       });
     }
+
+    //==================================================
+    // MACHINE EN LIGNE
+    //==================================================
+
+    return res.json({
+      success:
+        true,
+
+      machineId,
+
+      online:
+        true,
+
+      status:
+        "online",
+
+      lastSeen:
+        presence.lastSeen
+          ? new Date(
+              presence.lastSeen
+            ).toISOString()
+          : null,
+
+      data:
+        presence.lastData ??
+        null,
+    });
+  } catch (
+    error
+  ) {
+    console.error(
+      "Erreur récupération état machine :",
+      error
+    );
+
+    return res
+      .status(500)
+      .json({
+        success:
+          false,
+
+        message:
+          "Impossible de récupérer l'état de la machine",
+      });
   }
-
-  return res.json({
-    success: true,
-
-    machineId:
-      machineState.machineId ??
-      requestedMachineId ??
-      null,
-
-    online:
-      machineState.online ===
-      true,
-
-    status:
-      machineState.online ===
-      true
-        ? "online"
-        : "offline",
-
-    data: {
-      ...machineState,
-    },
-  });
 }
 
 /*
  * ===============================
- * MESURES ENVOYÉES PAR L’ESP32
+ * MESURES ENVOYÉES PAR L'ESP32
  * ===============================
  */
 
@@ -212,22 +385,41 @@ export async function receiveMeasurements(
 ) {
   try {
     const data =
-      req.body ?? {};
+      req.body ??
+      {};
+
+    //==================================================
+    // MACHINE
+    //==================================================
 
     const machineId =
-      extractMachineId(data);
+      extractMachineId(
+        data
+      );
 
     if (!machineId) {
-      return res.status(
-        400
-      ).json({
-        success: false,
-        message:
-          "Identifiant machine manquant ou invalide",
-      });
+      return res
+        .status(400)
+        .json({
+          success:
+            false,
+
+          message:
+            "Identifiant machine manquant ou invalide",
+        });
     }
 
-    const allAlerts = [];
+    //==================================================
+    // ÉTAT INDÉPENDANT DE CETTE MACHINE
+    //==================================================
+
+    const currentState =
+      createMachineState(
+        machineId
+      );
+
+    const allAlerts =
+      [];
 
     const lines = [
       "L1",
@@ -242,33 +434,41 @@ export async function receiveMeasurements(
      */
 
     for (
-      const lineName of lines
+      const lineName
+      of lines
     ) {
       const lineData =
         data.lines?.[
           lineName
         ];
 
-      /*
-       * La ligne absente est considérée
-       * comme indisponible.
-       */
+      //================================================
+      // LIGNE ABSENTE
+      //================================================
+
       if (
         !lineData ||
         typeof lineData !==
           "object"
       ) {
-        machineState.lines[
+        currentState.lines[
           lineName
         ] = {
-          ...machineState.lines[
-            lineName
-          ],
-          status: "offline",
+          ...currentState
+            .lines[
+              lineName
+            ],
+
+          status:
+            "offline",
         };
 
         continue;
       }
+
+      //================================================
+      // NORMALISATION
+      //================================================
 
       const normalizedLine = {
         voltage:
@@ -303,13 +503,17 @@ export async function receiveMeasurements(
           ),
       };
 
+      //================================================
+      // ALERTES
+      //================================================
+
       const result =
         checkLineAlerts(
           lineName,
           normalizedLine
         );
 
-      machineState.lines[
+      currentState.lines[
         lineName
       ] = {
         ...normalizedLine,
@@ -342,7 +546,7 @@ export async function receiveMeasurements(
         temperatureValue
       );
 
-    machineState.temperature = {
+    currentState.temperature = {
       value:
         temperatureValue,
 
@@ -353,7 +557,8 @@ export async function receiveMeasurements(
 
     pushAlerts(
       allAlerts,
-      temperatureResult?.alerts
+      temperatureResult
+        ?.alerts
     );
 
     /*
@@ -375,7 +580,7 @@ export async function receiveMeasurements(
         flowValue
       );
 
-    machineState.flow = {
+    currentState.flow = {
       value:
         flowValue,
 
@@ -435,7 +640,7 @@ export async function receiveMeasurements(
         volumeLiters,
       });
 
-    machineState.tank = {
+    currentState.tank = {
       distanceCm,
       levelCm,
       levelPercent,
@@ -453,26 +658,27 @@ export async function receiveMeasurements(
 
     /*
      * ===============================
-     * ÉTAT GLOBAL
+     * ÉTAT GLOBAL DE CETTE MESURE
      * ===============================
      */
 
     const timestamp =
-      new Date().toISOString();
+      new Date()
+        .toISOString();
 
-    machineState.machineId =
+    currentState.machineId =
       machineId;
 
-    machineState.online =
+    currentState.online =
       true;
 
-    machineState.status =
+    currentState.status =
       "online";
 
-    machineState.alerts =
+    currentState.alerts =
       allAlerts;
 
-    machineState.timestamp =
+    currentState.timestamp =
       timestamp;
 
     /*
@@ -483,16 +689,17 @@ export async function receiveMeasurements(
 
     const measurementId =
       await saveMeasurement(
-        machineState,
+        currentState,
         machineId
       );
 
-    /*
-     * On évite une requête inutile
-     * lorsqu’il n’y a aucune alerte.
-     */
+    //==================================================
+    // ALERTES
+    //==================================================
+
     if (
-      allAlerts.length > 0
+      allAlerts.length >
+      0
     ) {
       await saveAlerts(
         allAlerts,
@@ -512,11 +719,18 @@ export async function receiveMeasurements(
       );
 
     const socketData = {
-      ...machineState,
+      ...currentState,
+
       machineId,
+
       measurementId,
-      online: true,
-      status: "online",
+
+      online:
+        true,
+
+      status:
+        "online",
+
       timestamp,
     };
 
@@ -525,63 +739,87 @@ export async function receiveMeasurements(
       "function"
     ) {
       /*
-       * Met à jour lastSeen et émet :
+       * index.js stocke maintenant
+       * ces données dans :
        *
-       * machine:online
-       * machine:update
+       * connectedMachines.get(machineId)
+       *
+       * Donc chaque machine possède
+       * son propre lastData.
        */
+
       markMachineOnline(
         machineId,
         socketData
       );
     } else {
-      /*
-       * Solution de secours si index.js
-       * n’a pas enregistré markMachineOnline.
-       */
+      //================================================
+      // FALLBACK SOCKET.IO
+      //================================================
+
       const io =
-        req.app.get("io");
+        req.app.get(
+          "io"
+        );
 
       if (io) {
-        io.emit(
-          "machine:update",
-          socketData
-        );
+        io
+          .to(
+            getMachineRoom(
+              machineId
+            )
+          )
+          .emit(
+            "machine:update",
+            socketData
+          );
       }
     }
 
-    return res.status(
-      201
-    ).json({
-      success: true,
+    //==================================================
+    // RÉPONSE
+    //==================================================
 
-      message:
-        "Mesures reçues et enregistrées",
+    return res
+      .status(201)
+      .json({
+        success:
+          true,
 
-      machineId,
-      measurementId,
+        message:
+          "Mesures reçues et enregistrées",
 
-      data: {
-        ...machineState,
-      },
-    });
-  } catch (error) {
+        machineId,
+
+        measurementId,
+
+        data: {
+          ...currentState,
+        },
+      });
+  } catch (
+    error
+  ) {
     console.error(
       "Erreur lors de la réception des mesures :",
       error
     );
 
-    return res.status(
-      500
-    ).json({
-      success: false,
+    return res
+      .status(500)
+      .json({
+        success:
+          false,
 
-      message:
-        "Erreur lors du traitement ou de l’enregistrement des mesures",
+        message:
+          "Erreur lors du traitement ou de l'enregistrement des mesures",
 
-      details:
-        error.message,
-    });
+        details:
+          process.env.NODE_ENV ===
+          "production"
+            ? undefined
+            : error.message,
+      });
   }
 }
 
@@ -601,24 +839,31 @@ export async function getHistory(
         req.query.limit
       );
 
-    const machineId =
-      req.query.machineId
-        ? getMachineId(
-            req.query.machineId
-          )
-        : null;
+    /*
+     * IMPORTANT :
+     *
+     * requireMachineAccess a déjà
+     * validé et autorisé cette machine.
+     *
+     * On ne reprend donc PAS
+     * directement req.query.machineId.
+     */
 
-    if (
-      req.query.machineId &&
-      !machineId
-    ) {
-      return res.status(
-        400
-      ).json({
-        success: false,
-        message:
-          "Identifiant machine invalide",
-      });
+    const machineId =
+      getMachineId(
+        req.machineId
+      );
+
+    if (!machineId) {
+      return res
+        .status(400)
+        .json({
+          success:
+            false,
+
+          message:
+            "Identifiant machine invalide",
+        });
     }
 
     const history =
@@ -628,30 +873,40 @@ export async function getHistory(
       );
 
     return res.json({
-      success: true,
+      success:
+        true,
+
       machineId,
+
       count:
         history.length,
+
       data:
         history,
     });
-  } catch (error) {
+  } catch (
+    error
+  ) {
     console.error(
       "Erreur récupération historique :",
       error
     );
 
-    return res.status(
-      500
-    ).json({
-      success: false,
+    return res
+      .status(500)
+      .json({
+        success:
+          false,
 
-      message:
-        "Impossible de récupérer l’historique",
+        message:
+          "Impossible de récupérer l'historique",
 
-      details:
-        error.message,
-    });
+        details:
+          process.env.NODE_ENV ===
+          "production"
+            ? undefined
+            : error.message,
+      });
   }
 }
 
@@ -684,34 +939,38 @@ export async function getHistoryByPeriod(
         period
       )
     ) {
-      return res.status(
-        400
-      ).json({
-        success: false,
+      return res
+        .status(400)
+        .json({
+          success:
+            false,
 
-        message:
-          "Période invalide. Valeurs autorisées : 1h, 24h, 7d, 30d",
-      });
+          message:
+            "Période invalide. Valeurs autorisées : 1h, 24h, 7d, 30d",
+        });
     }
 
-    const machineId =
-      req.query.machineId
-        ? getMachineId(
-            req.query.machineId
-          )
-        : null;
+    /*
+     * Comme pour getHistory(),
+     * on utilise l'identifiant validé
+     * par requireMachineAccess.
+     */
 
-    if (
-      req.query.machineId &&
-      !machineId
-    ) {
-      return res.status(
-        400
-      ).json({
-        success: false,
-        message:
-          "Identifiant machine invalide",
-      });
+    const machineId =
+      getMachineId(
+        req.machineId
+      );
+
+    if (!machineId) {
+      return res
+        .status(400)
+        .json({
+          success:
+            false,
+
+          message:
+            "Identifiant machine invalide",
+        });
     }
 
     const history =
@@ -721,30 +980,41 @@ export async function getHistoryByPeriod(
       );
 
     return res.json({
-      success: true,
+      success:
+        true,
+
       machineId,
+
       period,
+
       count:
         history.length,
+
       data:
         history,
     });
-  } catch (error) {
+  } catch (
+    error
+  ) {
     console.error(
       "Erreur récupération historique par période :",
       error
     );
 
-    return res.status(
-      500
-    ).json({
-      success: false,
+    return res
+      .status(500)
+      .json({
+        success:
+          false,
 
-      message:
-        "Impossible de récupérer l’historique demandé",
+        message:
+          "Impossible de récupérer l'historique demandé",
 
-      details:
-        error.message,
-    });
+        details:
+          process.env.NODE_ENV ===
+          "production"
+            ? undefined
+            : error.message,
+      });
   }
 }
