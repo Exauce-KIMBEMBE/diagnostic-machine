@@ -190,6 +190,107 @@ function getJwtSecret() {
 }
 
 //======================================================
+// UTILISATEUR SOCKET DEPUIS MYSQL
+//======================================================
+
+async function getSocketUserFromToken(
+  token
+) {
+  const decoded =
+    jwt.verify(
+      token,
+      getJwtSecret()
+    );
+
+  const userId =
+    Number(
+      decoded?.id
+    );
+
+  if (
+    !Number.isInteger(
+      userId
+    ) ||
+    userId <= 0
+  ) {
+    throw new Error(
+      "Token Socket.IO invalide"
+    );
+  }
+
+  const [
+    rows,
+  ] =
+    await pool.query(
+      `
+      SELECT
+        id,
+        name,
+        email,
+        role,
+        active
+      FROM users
+      WHERE id = ?
+      LIMIT 1
+      `,
+      [
+        userId,
+      ]
+    );
+
+  if (
+    rows.length === 0
+  ) {
+    throw new Error(
+      "Utilisateur Socket.IO introuvable"
+    );
+  }
+
+  const user =
+    rows[0];
+
+  if (
+    user.active !== 1 &&
+    user.active !== true
+  ) {
+    throw new Error(
+      "Compte utilisateur désactivé"
+    );
+  }
+
+  if (
+    ![
+      "manager",
+      "client",
+    ].includes(
+      user.role
+    )
+  ) {
+    throw new Error(
+      "Rôle Socket.IO invalide"
+    );
+  }
+
+  return {
+    id:
+      Number(
+        user.id
+      ),
+
+    name:
+      user.name ??
+      null,
+
+    email:
+      user.email ??
+      null,
+
+    role:
+      user.role,
+  };
+}
+
+//======================================================
 // PRÉSENCE MACHINE
 //======================================================
 
@@ -498,6 +599,32 @@ async function canSocketAccessMachine(
   }
 
   //====================================================
+  // VÉRIFIER QUE LA MACHINE EXISTE
+  //====================================================
+
+  const [
+    machineRows,
+  ] =
+    await pool.query(
+      `
+      SELECT
+        id
+      FROM machines
+      WHERE id = ?
+      LIMIT 1
+      `,
+      [
+        normalizedId,
+      ]
+    );
+
+  if (
+    machineRows.length === 0
+  ) {
+    return false;
+  }
+
+  //====================================================
   // MANAGER
   //====================================================
 
@@ -526,12 +653,9 @@ async function canSocketAccessMachine(
       `
       SELECT
         machine_id
-
       FROM user_machines
-
       WHERE user_id = ?
         AND machine_id = ?
-
       LIMIT 1
       `,
       [
@@ -758,12 +882,6 @@ app.get(
 // AUTHENTIFICATION
 //======================================================
 
-/*
- * POST /api/auth/register
- * POST /api/auth/login
- * GET  /api/auth/me
- */
-
 app.use(
   "/api/auth",
   authRoutes
@@ -815,21 +933,21 @@ app.use(
 );
 
 //======================================================
-// SOCKET.IO - AUTHENTIFICATION JWT
+// SOCKET.IO - AUTHENTIFICATION JWT + MYSQL
 //======================================================
 
 io.use(
-  (
+  async (
     socket,
     next
   ) => {
     try {
       /*
-       * Le Dashboard devra envoyer :
+       * Le Dashboard doit envoyer :
        *
        * io(API_URL, {
        *   auth: {
-       *     token: token
+       *     token
        *   }
        * })
        */
@@ -839,11 +957,9 @@ io.use(
           ?.auth
           ?.token;
 
-      /*
-       * Compatibilité éventuelle avec :
-       *
-       * Authorization: Bearer ...
-       */
+      //================================================
+      // AUTORISATION HEADER ÉVENTUELLE
+      //================================================
 
       if (!token) {
         const authorization =
@@ -873,55 +989,17 @@ io.use(
         );
       }
 
-      const decoded =
-        jwt.verify(
-          token,
-          getJwtSecret()
+      //================================================
+      // JWT + UTILISATEUR MYSQL
+      //================================================
+
+      const user =
+        await getSocketUserFromToken(
+          token
         );
 
-      if (
-        !decoded?.id ||
-        !decoded?.role
-      ) {
-        return next(
-          new Error(
-            "Token Socket.IO invalide"
-          )
-        );
-      }
-
-      if (
-        ![
-          "manager",
-          "client",
-        ].includes(
-          decoded.role
-        )
-      ) {
-        return next(
-          new Error(
-            "Rôle Socket.IO invalide"
-          )
-        );
-      }
-
-      socket.data.user = {
-        id:
-          Number(
-            decoded.id
-          ),
-
-        name:
-          decoded.name ??
-          null,
-
-        email:
-          decoded.email ??
-          null,
-
-        role:
-          decoded.role,
-      };
+      socket.data.user =
+        user;
 
       return next();
     } catch (error) {
@@ -929,6 +1007,17 @@ io.use(
         "Connexion Socket.IO refusée :",
         error.message
       );
+
+      if (
+        error.name ===
+        "TokenExpiredError"
+      ) {
+        return next(
+          new Error(
+            "Session Socket.IO expirée"
+          )
+        );
+      }
 
       return next(
         new Error(
@@ -967,6 +1056,12 @@ io.on(
         user: {
           id:
             user.id,
+
+          name:
+            user.name,
+
+          email:
+            user.email,
 
           role:
             user.role,
@@ -1348,7 +1443,10 @@ app.use(
           "Erreur interne du serveur",
 
         details:
-          error.message,
+          process.env.NODE_ENV ===
+          "production"
+            ? undefined
+            : error.message,
       });
   }
 );
@@ -1394,7 +1492,7 @@ async function startServer() {
         );
 
         console.log(
-          "SocketIO : JWT sécurisé"
+          "SocketIO : JWT + MySQL sécurisé"
         );
 
         console.log(
