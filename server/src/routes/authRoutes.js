@@ -2,6 +2,7 @@ import express from "express";
 
 import {
   login,
+  register,
   getCurrentUser,
 } from "../controllers/authController.js";
 
@@ -12,43 +13,46 @@ import {
 const router = express.Router();
 
 //======================================================
-// CONNEXION
+// INSCRIPTION
 //======================================================
 
 /*
- * POST /api/auth/login
- *
- * Body attendu :
+ * POST /api/auth/register
  *
  * {
- *   "email": "manager@example.com",
- *   "password": "motDePasse"
+ *   "name": "Jean",
+ *   "email": "jean@email.com",
+ *   "password": "motDePasse",
+ *   "machineId": 1
  * }
+ *
+ * Tous les nouveaux utilisateurs
+ * sont automatiquement CLIENT.
  */
+router.post(
+  "/register",
+  register
+);
+
+//======================================================
+// CONNEXION
+//======================================================
+
 router.post(
   "/login",
   login
 );
 
 //======================================================
-// UTILISATEUR ACTUEL
+// UTILISATEUR CONNECTÉ
 //======================================================
 
-/*
- * GET /api/auth/me
- *
- * Header :
- *
- * Authorization: Bearer TOKEN
- */
 router.get(
   "/me",
   authenticate,
   getCurrentUser
 );
 
-//======================================================
-// EXPORT
 //======================================================
 
 export default router;
