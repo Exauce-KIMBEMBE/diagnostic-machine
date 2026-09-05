@@ -1822,3 +1822,447 @@
     margin-left: 0;
   }
 }
+
+/* =========================================================
+   PAGE DE CONNEXION
+========================================================= */
+
+.login-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 100vh;
+  padding: 24px;
+
+  background:
+    radial-gradient(
+      circle at 20% 20%,
+      rgba(37, 99, 235, 0.18),
+      transparent 34%
+    ),
+    radial-gradient(
+      circle at 80% 80%,
+      rgba(6, 182, 212, 0.1),
+      transparent 32%
+    ),
+    #08111f;
+
+  color: var(--text);
+}
+
+/* =========================================================
+   CARTE DE CONNEXION
+========================================================= */
+
+.login-card {
+  width: 100%;
+  max-width: 460px;
+  padding: 30px;
+
+  background:
+    linear-gradient(
+      145deg,
+      rgba(30, 41, 59, 0.98),
+      rgba(15, 23, 42, 0.98)
+    );
+
+  border: 1px solid
+    rgba(148, 163, 184, 0.16);
+
+  border-radius: 20px;
+
+  box-shadow:
+    0 30px 70px
+      rgba(0, 0, 0, 0.35),
+    0 0 50px
+      rgba(37, 99, 235, 0.05);
+
+  backdrop-filter: blur(16px);
+}
+
+/* =========================================================
+   IDENTITÉ DE L'APPLICATION
+========================================================= */
+
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+
+  padding-bottom: 23px;
+  margin-bottom: 25px;
+
+  border-bottom: 1px solid
+    rgba(148, 163, 184, 0.12);
+}
+
+.login-logo {
+  display: grid;
+  place-items: center;
+
+  width: 52px;
+  height: 52px;
+
+  flex-shrink: 0;
+
+  color: #ffffff;
+
+  background:
+    linear-gradient(
+      135deg,
+      #2563eb,
+      #06b6d4
+    );
+
+  border-radius: 15px;
+
+  box-shadow:
+    0 12px 28px
+      rgba(37, 99, 235, 0.28);
+}
+
+.login-brand h1 {
+  margin: 0;
+
+  color: #f8fafc;
+
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
+.login-brand p {
+  margin: 5px 0 0;
+
+  color: #64748b;
+
+  font-size: 0.76rem;
+}
+
+/* =========================================================
+   TITRE
+========================================================= */
+
+.login-header {
+  margin-bottom: 24px;
+}
+
+.login-header h2 {
+  margin: 0;
+
+  color: #f8fafc;
+
+  font-size: 1.75rem;
+  font-weight: 800;
+}
+
+.login-header p {
+  margin: 8px 0 0;
+
+  color: var(--text-secondary);
+
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+/* =========================================================
+   MESSAGE D'ERREUR
+========================================================= */
+
+.login-error {
+  margin-bottom: 18px;
+  padding: 12px 14px;
+
+  color: #fecaca;
+
+  background:
+    rgba(239, 68, 68, 0.1);
+
+  border: 1px solid
+    rgba(239, 68, 68, 0.26);
+
+  border-radius: 10px;
+
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+/* =========================================================
+   FORMULAIRE
+========================================================= */
+
+.login-form {
+  display: grid;
+  gap: 19px;
+}
+
+.login-field {
+  display: grid;
+  gap: 8px;
+}
+
+.login-field label {
+  color: #cbd5e1;
+
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.login-input-wrapper {
+  position: relative;
+
+  display: flex;
+  align-items: center;
+}
+
+.login-input-icon {
+  position: absolute;
+  left: 14px;
+
+  color: #64748b;
+
+  pointer-events: none;
+}
+
+.login-input-wrapper input {
+  width: 100%;
+  height: 48px;
+
+  padding:
+    0
+    46px
+    0
+    44px;
+
+  color: #f8fafc;
+
+  background: #111c2e;
+
+  border: 1px solid
+    rgba(148, 163, 184, 0.16);
+
+  border-radius: 11px;
+
+  outline: none;
+
+  font-size: 0.88rem;
+
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.login-input-wrapper input::placeholder {
+  color: #475569;
+}
+
+.login-input-wrapper input:hover {
+  border-color:
+    rgba(148, 163, 184, 0.28);
+}
+
+.login-input-wrapper input:focus {
+  background: #111f34;
+
+  border-color: #3b82f6;
+
+  box-shadow:
+    0 0 0 3px
+      rgba(59, 130, 246, 0.12);
+}
+
+.login-input-wrapper input:focus
+  ~ .login-input-icon {
+  color: #60a5fa;
+}
+
+.login-input-wrapper input:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* =========================================================
+   AFFICHER / MASQUER MOT DE PASSE
+========================================================= */
+
+.login-password-toggle {
+  position: absolute;
+  right: 8px;
+
+  display: grid;
+  place-items: center;
+
+  width: 34px;
+  height: 34px;
+
+  padding: 0;
+
+  color: #64748b;
+
+  background: transparent;
+
+  border: none;
+  border-radius: 8px;
+
+  cursor: pointer;
+}
+
+.login-password-toggle:hover {
+  color: #cbd5e1;
+
+  background:
+    rgba(255, 255, 255, 0.05);
+}
+
+.login-password-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* =========================================================
+   BOUTON CONNEXION
+========================================================= */
+
+.login-submit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  width: 100%;
+  min-height: 48px;
+
+  margin-top: 3px;
+  padding: 0 18px;
+
+  color: #ffffff;
+
+  background:
+    linear-gradient(
+      135deg,
+      #2563eb,
+      #1d4ed8
+    );
+
+  border: 1px solid
+    rgba(96, 165, 250, 0.35);
+
+  border-radius: 11px;
+
+  font-size: 0.88rem;
+  font-weight: 900;
+
+  cursor: pointer;
+
+  box-shadow:
+    0 10px 25px
+      rgba(37, 99, 235, 0.2);
+
+  transition:
+    transform 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.login-submit:hover:not(:disabled) {
+  transform: translateY(-1px);
+
+  background:
+    linear-gradient(
+      135deg,
+      #3b82f6,
+      #2563eb
+    );
+
+  box-shadow:
+    0 13px 30px
+      rgba(37, 99, 235, 0.27);
+}
+
+.login-submit:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.login-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+/* =========================================================
+   BAS DE LA CARTE
+========================================================= */
+
+.login-footer {
+  margin-top: 25px;
+  padding-top: 18px;
+
+  text-align: center;
+
+  border-top: 1px solid
+    rgba(148, 163, 184, 0.1);
+}
+
+.login-footer span {
+  color: #475569;
+
+  font-size: 0.7rem;
+}
+
+/* =========================================================
+   CHARGEMENT DE L'APPLICATION
+========================================================= */
+
+.app-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  width: 100%;
+  min-height: 100vh;
+
+  color: #cbd5e1;
+
+  background:
+    radial-gradient(
+      circle at top left,
+      rgba(37, 99, 235, 0.08),
+      transparent 34%
+    ),
+    #08111f;
+
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+/* =========================================================
+   RESPONSIVE CONNEXION
+========================================================= */
+
+@media (max-width: 600px) {
+  .login-page {
+    padding: 14px;
+  }
+
+  .login-card {
+    padding: 22px 18px;
+    border-radius: 16px;
+  }
+
+  .login-logo {
+    width: 46px;
+    height: 46px;
+  }
+
+  .login-brand h1 {
+    font-size: 1rem;
+  }
+
+  .login-brand p {
+    font-size: 0.7rem;
+  }
+
+  .login-header h2 {
+    font-size: 1.5rem;
+  }
+}
