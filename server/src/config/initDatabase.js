@@ -191,10 +191,9 @@ function generateActivationCode() {
    *
    * A7F4C9D2B681
    *
-   * 12 caractères hexadécimaux.
-   *
-   * Ce code est destiné à être fourni
-   * avec la machine au propriétaire.
+   * Ce code est utilisé par le client
+   * pour associer physiquement une machine
+   * à son compte.
    */
 
   return crypto
@@ -204,19 +203,12 @@ function generateActivationCode() {
 }
 
 //======================================================
-// CRÉATION D'UN CODE UNIQUE
+// CRÉATION D'UN CODE D'ACTIVATION UNIQUE
 //======================================================
 
 async function generateUniqueActivationCode(
   connection
 ) {
-  /*
-   * La probabilité de collision est déjà
-   * extrêmement faible.
-   *
-   * On vérifie quand même la base.
-   */
-
   for (
     let attempt = 0;
     attempt < 20;
@@ -263,7 +255,9 @@ async function initializeMachineActivationCodes(
       SELECT
         id,
         activation_code
+
       FROM machines
+
       WHERE activation_code IS NULL
          OR activation_code = ''
       `
@@ -297,6 +291,112 @@ async function initializeMachineActivationCodes(
 }
 
 //======================================================
+// GÉNÉRATION D'UN TOKEN MACHINE
+//======================================================
+
+function generateMachineToken() {
+  /*
+   * Token utilisé par l'ESP32 pour
+   * s'authentifier auprès du backend.
+   *
+   * 32 octets =
+   * 64 caractères hexadécimaux.
+   */
+
+  return crypto
+    .randomBytes(32)
+    .toString("hex");
+}
+
+//======================================================
+// CRÉATION D'UN TOKEN MACHINE UNIQUE
+//======================================================
+
+async function generateUniqueMachineToken(
+  connection
+) {
+  for (
+    let attempt = 0;
+    attempt < 20;
+    attempt += 1
+  ) {
+    const machineToken =
+      generateMachineToken();
+
+    const [rows] =
+      await connection.query(
+        `
+        SELECT id
+        FROM machines
+        WHERE machine_token = ?
+        LIMIT 1
+        `,
+        [
+          machineToken,
+        ]
+      );
+
+    if (
+      rows.length === 0
+    ) {
+      return machineToken;
+    }
+  }
+
+  throw new Error(
+    "Impossible de générer un token machine unique"
+  );
+}
+
+//======================================================
+// TOKENS DES MACHINES EXISTANTES
+//======================================================
+
+async function initializeMachineTokens(
+  connection
+) {
+  const [machines] =
+    await connection.query(
+      `
+      SELECT
+        id,
+        machine_token
+
+      FROM machines
+
+      WHERE machine_token IS NULL
+         OR machine_token = ''
+      `
+    );
+
+  for (
+    const machine
+    of machines
+  ) {
+    const machineToken =
+      await generateUniqueMachineToken(
+        connection
+      );
+
+    await connection.query(
+      `
+      UPDATE machines
+      SET machine_token = ?
+      WHERE id = ?
+      `,
+      [
+        machineToken,
+        machine.id,
+      ]
+    );
+
+    console.log(
+      `Token généré pour la machine ${machine.id}`
+    );
+  }
+}
+
+//======================================================
 // INITIALISATION DE LA BASE
 //======================================================
 
@@ -322,6 +422,8 @@ export async function initializeDatabase() {
 
         activation_code VARCHAR(64),
 
+        machine_token VARCHAR(64),
+
         location VARCHAR(150),
 
         description TEXT,
@@ -331,6 +433,10 @@ export async function initializeDatabase() {
 
         UNIQUE KEY unique_machine_activation_code (
           activation_code
+        ),
+
+        UNIQUE KEY unique_machine_token (
+          machine_token
         )
       )
     `);
@@ -338,12 +444,6 @@ export async function initializeDatabase() {
     //==================================================
     // MIGRATION activation_code
     //==================================================
-
-    /*
-     * Si la table machines existait avant
-     * l'ajout du système d'activation,
-     * la colonne est créée automatiquement.
-     */
 
     await addColumnIfMissing(
       connection,
@@ -358,6 +458,35 @@ export async function initializeDatabase() {
       "unique_machine_activation_code",
       [
         "activation_code",
+      ]
+    );
+
+    //==================================================
+    // MIGRATION machine_token
+    //==================================================
+
+    /*
+     * Cette colonne est ajoutée maintenant,
+     * mais le token ne sera PAS encore
+     * obligatoire pour recevoir les mesures.
+     *
+     * L'ancien firmware ESP32 peut donc
+     * continuer à fonctionner.
+     */
+
+    await addColumnIfMissing(
+      connection,
+      "machines",
+      "machine_token",
+      "VARCHAR(64) NULL AFTER activation_code"
+    );
+
+    await addUniqueIndexIfMissing(
+      connection,
+      "machines",
+      "unique_machine_token",
+      [
+        "machine_token",
       ]
     );
 
@@ -384,14 +513,15 @@ export async function initializeDatabase() {
     // INITIALISATION DES CODES D'ACTIVATION
     //==================================================
 
-    /*
-     * Les machines déjà présentes dans la base
-     * peuvent ne pas avoir de code.
-     *
-     * On leur en génère automatiquement un.
-     */
-
     await initializeMachineActivationCodes(
+      connection
+    );
+
+    //==================================================
+    // INITIALISATION DES TOKENS MACHINES
+    //==================================================
+
+    await initializeMachineTokens(
       connection
     );
 
@@ -458,16 +588,13 @@ export async function initializeDatabase() {
     //==================================================
 
     /*
-     * RÈGLE :
-     *
-     * Un utilisateur peut avoir PLUSIEURS machines.
+     * Un utilisateur peut avoir plusieurs machines.
      *
      * Une machine ne peut appartenir
-     * qu'à UN SEUL client.
+     * qu'à un seul client.
      *
-     * Les managers n'ont pas besoin
-     * d'association car ils peuvent
-     * accéder à toutes les machines.
+     * Les managers ont accès à toutes
+     * les machines sans association.
      */
 
     await connection.query(`
@@ -786,29 +913,225 @@ export async function initializeDatabase() {
     //==================================================
 
     const defaultThresholds = [
-      [1, "L1", "voltage", 210, 240, null, null, "V"],
-      [1, "L1", "current", 0, 10, null, null, "A"],
-      [1, "L1", "power", 0, 2200, null, null, "W"],
-      [1, "L1", "frequency", 49, 51, null, null, "Hz"],
-      [1, "L1", "powerFactor", 0.8, 1, null, null, ""],
+      [
+        1,
+        "L1",
+        "voltage",
+        210,
+        240,
+        null,
+        null,
+        "V",
+      ],
 
-      [1, "L2", "voltage", 210, 240, null, null, "V"],
-      [1, "L2", "current", 0, 10, null, null, "A"],
-      [1, "L2", "power", 0, 2200, null, null, "W"],
-      [1, "L2", "frequency", 49, 51, null, null, "Hz"],
-      [1, "L2", "powerFactor", 0.8, 1, null, null, ""],
+      [
+        1,
+        "L1",
+        "current",
+        0,
+        10,
+        null,
+        null,
+        "A",
+      ],
 
-      [1, "L3", "voltage", 210, 240, null, null, "V"],
-      [1, "L3", "current", 0, 10, null, null, "A"],
-      [1, "L3", "power", 0, 2200, null, null, "W"],
-      [1, "L3", "frequency", 49, 51, null, null, "Hz"],
-      [1, "L3", "powerFactor", 0.8, 1, null, null, ""],
+      [
+        1,
+        "L1",
+        "power",
+        0,
+        2200,
+        null,
+        null,
+        "W",
+      ],
 
-      [1, "temperature", "temperature", -20, 125, 60, 80, "°C"],
-      [1, "flow", "flowRate", 5, 60, null, null, "L/min"],
-      [1, "tank", "levelPercent", 0, 100, 20, 10, "%"],
-      [1, "tank", "distanceCm", 20, 600, null, null, "cm"],
-      [1, "tank", "volumeLiters", 0, 1000, null, null, "L"],
+      [
+        1,
+        "L1",
+        "frequency",
+        49,
+        51,
+        null,
+        null,
+        "Hz",
+      ],
+
+      [
+        1,
+        "L1",
+        "powerFactor",
+        0.8,
+        1,
+        null,
+        null,
+        "",
+      ],
+
+      [
+        1,
+        "L2",
+        "voltage",
+        210,
+        240,
+        null,
+        null,
+        "V",
+      ],
+
+      [
+        1,
+        "L2",
+        "current",
+        0,
+        10,
+        null,
+        null,
+        "A",
+      ],
+
+      [
+        1,
+        "L2",
+        "power",
+        0,
+        2200,
+        null,
+        null,
+        "W",
+      ],
+
+      [
+        1,
+        "L2",
+        "frequency",
+        49,
+        51,
+        null,
+        null,
+        "Hz",
+      ],
+
+      [
+        1,
+        "L2",
+        "powerFactor",
+        0.8,
+        1,
+        null,
+        null,
+        "",
+      ],
+
+      [
+        1,
+        "L3",
+        "voltage",
+        210,
+        240,
+        null,
+        null,
+        "V",
+      ],
+
+      [
+        1,
+        "L3",
+        "current",
+        0,
+        10,
+        null,
+        null,
+        "A",
+      ],
+
+      [
+        1,
+        "L3",
+        "power",
+        0,
+        2200,
+        null,
+        null,
+        "W",
+      ],
+
+      [
+        1,
+        "L3",
+        "frequency",
+        49,
+        51,
+        null,
+        null,
+        "Hz",
+      ],
+
+      [
+        1,
+        "L3",
+        "powerFactor",
+        0.8,
+        1,
+        null,
+        null,
+        "",
+      ],
+
+      [
+        1,
+        "temperature",
+        "temperature",
+        -20,
+        125,
+        60,
+        80,
+        "°C",
+      ],
+
+      [
+        1,
+        "flow",
+        "flowRate",
+        5,
+        60,
+        null,
+        null,
+        "L/min",
+      ],
+
+      [
+        1,
+        "tank",
+        "levelPercent",
+        0,
+        100,
+        20,
+        10,
+        "%",
+      ],
+
+      [
+        1,
+        "tank",
+        "distanceCm",
+        20,
+        600,
+        null,
+        null,
+        "cm",
+      ],
+
+      [
+        1,
+        "tank",
+        "volumeLiters",
+        0,
+        1000,
+        null,
+        null,
+        "L",
+      ],
     ];
 
     for (
@@ -925,6 +1248,10 @@ export async function initializeDatabase() {
 
     console.log(
       "Codes activation           OK"
+    );
+
+    console.log(
+      "Tokens machines            OK"
     );
 
     console.log(
