@@ -11,6 +11,12 @@ import thresholdRoutes from "./routes/thresholdRoutes.js";
 import configurationRoutes from "./routes/configurationRoutes.js";
 import firmwareRoutes from "./routes/firmwareRoutes.js";
 
+/*
+ * NOUVEAU :
+ * Routes d'authentification
+ */
+import authRoutes from "./routes/authRoutes.js";
+
 import {
   testDatabaseConnection,
 } from "./config/database.js";
@@ -20,51 +26,45 @@ import {
 } from "./config/initDatabase.js";
 
 const app = express();
-const server = http.createServer(app);
+
+const server =
+  http.createServer(app);
 
 const PORT = Number(
   process.env.PORT || 3001
 );
 
-/*
- * ===============================
- * PRÉSENCE DES MACHINES
- * ===============================
- */
+//======================================================
+// PRÉSENCE DES MACHINES
+//======================================================
 
 /*
  * Une machine est considérée hors ligne
  * après 30 secondes sans nouvelle mesure.
  */
-const MACHINE_OFFLINE_DELAY = 30_000;
+const MACHINE_OFFLINE_DELAY =
+  30_000;
 
 /*
  * Le serveur vérifie l’état des machines
  * toutes les 5 secondes.
  */
-const MACHINE_CHECK_INTERVAL = 5_000;
+const MACHINE_CHECK_INTERVAL =
+  5_000;
 
 /*
- * Stockage temporaire en mémoire.
- *
- * Map<
- *   machineId,
- *   {
- *     online: boolean,
- *     lastSeen: number,
- *     lastData: object | null
- *   }
- * >
+ * Stockage temporaire de l'état
+ * des machines en mémoire.
  */
-const connectedMachines = new Map();
+const connectedMachines =
+  new Map();
 
-let databaseConnected = false;
+let databaseConnected =
+  false;
 
-/*
- * ===============================
- * CONFIGURATION CORS
- * ===============================
- */
+//======================================================
+// CONFIGURATION CORS
+//======================================================
 
 const allowedOrigins = [
   "http://localhost:5173",
@@ -72,17 +72,24 @@ const allowedOrigins = [
 ];
 
 const corsOptions = {
-  origin(origin, callback) {
+  origin(
+    origin,
+    callback
+  ) {
     /*
-     * Les requêtes provenant de l’ESP32,
-     * de Postman ou d’un serveur peuvent
-     * ne pas contenir d’en-tête Origin.
+     * ESP32, Postman et certaines requêtes
+     * serveur peuvent ne pas envoyer Origin.
      */
     if (
       !origin ||
-      allowedOrigins.includes(origin)
+      allowedOrigins.includes(
+        origin
+      )
     ) {
-      return callback(null, true);
+      return callback(
+        null,
+        true
+      );
     }
 
     return callback(
@@ -109,36 +116,44 @@ const corsOptions = {
   credentials: true,
 };
 
-/*
- * ===============================
- * SOCKET.IO
- * ===============================
- */
+//======================================================
+// SOCKET.IO
+//======================================================
 
-const io = new Server(server, {
-  cors: corsOptions,
-});
-
-app.set("io", io);
-
-/*
- * ===============================
- * OUTILS DE PRÉSENCE MACHINE
- * ===============================
- */
+const io =
+  new Server(
+    server,
+    {
+      cors: corsOptions,
+    }
+  );
 
 /*
- * Vérifie et normalise l’identifiant
- * d’une machine.
+ * Permet aux routes d'utiliser :
+ *
+ * req.app.get("io")
  */
+app.set(
+  "io",
+  io
+);
+
+//======================================================
+// OUTILS DE PRÉSENCE MACHINE
+//======================================================
+
 function normalizeMachineId(
   machineId
 ) {
   const normalizedId =
-    Number(machineId);
+    Number(
+      machineId
+    );
 
   if (
-    !Number.isInteger(normalizedId) ||
+    !Number.isInteger(
+      normalizedId
+    ) ||
     normalizedId <= 0
   ) {
     return null;
@@ -147,20 +162,16 @@ function normalizeMachineId(
   return normalizedId;
 }
 
-/*
- * Retourne le nom de la salle Socket.IO
- * d’une machine.
- */
+//======================================================
+
 function getMachineRoom(
   machineId
 ) {
   return `machine:${machineId}`;
 }
 
-/*
- * Récupère l’identifiant machine
- * depuis plusieurs formats possibles.
- */
+//======================================================
+
 function extractMachineId(
   data = {}
 ) {
@@ -172,15 +183,15 @@ function extractMachineId(
   );
 }
 
-/*
- * Retourne l’état actuel d’une machine
- * sans consulter la base de données.
- */
+//======================================================
+
 function getMachinePresence(
   machineId
 ) {
   const normalizedId =
-    normalizeMachineId(machineId);
+    normalizeMachineId(
+      machineId
+    );
 
   if (!normalizedId) {
     return {
@@ -198,9 +209,13 @@ function getMachinePresence(
 
   if (!machine) {
     return {
-      machineId: normalizedId,
+      machineId:
+        normalizedId,
+
       online: false,
+
       lastSeen: null,
+
       lastData: null,
     };
   }
@@ -212,28 +227,32 @@ function getMachinePresence(
       MACHINE_OFFLINE_DELAY;
 
   return {
-    machineId: normalizedId,
+    machineId:
+      normalizedId,
+
     online,
+
     lastSeen:
       machine.lastSeen,
+
     lastData:
       machine.lastData ??
       null,
   };
 }
 
-/*
- * Déclare une machine en ligne.
- *
- * Cette fonction est appelée
- * lorsqu’une nouvelle mesure est reçue.
- */
+//======================================================
+// MACHINE EN LIGNE
+//======================================================
+
 function markMachineOnline(
   machineId,
   machineData = null
 ) {
   const normalizedId =
-    normalizeMachineId(machineId);
+    normalizeMachineId(
+      machineId
+    );
 
   if (!normalizedId) {
     console.warn(
@@ -249,22 +268,21 @@ function markMachineOnline(
       normalizedId
     );
 
-  /*
-   * Une machine peut être encore marquée
-   * online dans la Map alors que son délai
-   * est déjà dépassé.
-   */
   const wasOnline =
-    previousState?.online === true &&
+    previousState?.online ===
+      true &&
     Date.now() -
       previousState.lastSeen <
       MACHINE_OFFLINE_DELAY;
 
-  const now = Date.now();
+  const now =
+    Date.now();
 
   const nextState = {
     online: true,
-    lastSeen: now,
+
+    lastSeen:
+      now,
 
     lastData:
       machineData ??
@@ -278,8 +296,8 @@ function markMachineOnline(
   );
 
   /*
-   * machine:online est envoyé uniquement
-   * lors du passage hors ligne vers en ligne.
+   * Émission uniquement lorsque la machine
+   * passe réellement hors ligne -> en ligne.
    */
   if (!wasOnline) {
     io.to(
@@ -294,7 +312,8 @@ function markMachineOnline(
 
         online: true,
 
-        status: "online",
+        status:
+          "online",
 
         lastSeen:
           new Date(
@@ -314,8 +333,8 @@ function markMachineOnline(
   }
 
   /*
-   * Les nouvelles données sont immédiatement
-   * envoyées au Dashboard.
+   * Envoi immédiat des nouvelles mesures
+   * au Dashboard.
    */
   if (
     machineData &&
@@ -336,7 +355,8 @@ function markMachineOnline(
 
         online: true,
 
-        status: "online",
+        status:
+          "online",
 
         timestamp:
           machineData.timestamp ??
@@ -350,15 +370,18 @@ function markMachineOnline(
   return nextState;
 }
 
-/*
- * Déclare une machine hors ligne.
- */
+//======================================================
+// MACHINE HORS LIGNE
+//======================================================
+
 function markMachineOffline(
   machineId,
   reason = "timeout"
 ) {
   const normalizedId =
-    normalizeMachineId(machineId);
+    normalizeMachineId(
+      machineId
+    );
 
   if (!normalizedId) {
     return;
@@ -371,17 +394,20 @@ function markMachineOffline(
 
   if (
     !previousState ||
-    previousState.online !== true
+    previousState.online !==
+      true
   ) {
     return;
   }
 
-  const now = Date.now();
+  const now =
+    Date.now();
 
   connectedMachines.set(
     normalizedId,
     {
       ...previousState,
+
       online: false,
     }
   );
@@ -398,7 +424,8 @@ function markMachineOffline(
 
       online: false,
 
-      status: "offline",
+      status:
+        "offline",
 
       reason,
 
@@ -421,11 +448,10 @@ function markMachineOffline(
   );
 }
 
-/*
- * Les routes et les contrôleurs
- * peuvent récupérer ces fonctions
- * avec req.app.get(...).
- */
+//======================================================
+// OUTILS DISPONIBLES DANS LES ROUTES
+//======================================================
+
 app.set(
   "markMachineOnline",
   markMachineOnline
@@ -446,55 +472,61 @@ app.set(
   connectedMachines
 );
 
-/*
- * Vérification automatique des machines.
- */
+//======================================================
+// SURVEILLANCE AUTOMATIQUE DES MACHINES
+//======================================================
+
 const machinePresenceTimer =
-  setInterval(() => {
-    const now = Date.now();
+  setInterval(
+    () => {
+      const now =
+        Date.now();
 
-    for (
-      const [
-        machineId,
-        machine,
-      ] of connectedMachines.entries()
-    ) {
-      if (!machine.online) {
-        continue;
-      }
-
-      const elapsed =
-        now -
-        machine.lastSeen;
-
-      if (
-        elapsed >=
-        MACHINE_OFFLINE_DELAY
-      ) {
-        markMachineOffline(
+      for (
+        const [
           machineId,
-          "absence de données"
-        );
+          machine,
+        ] of connectedMachines.entries()
+      ) {
+        if (
+          !machine.online
+        ) {
+          continue;
+        }
+
+        const elapsed =
+          now -
+          machine.lastSeen;
+
+        if (
+          elapsed >=
+          MACHINE_OFFLINE_DELAY
+        ) {
+          markMachineOffline(
+            machineId,
+            "absence de données"
+          );
+        }
       }
-    }
-  }, MACHINE_CHECK_INTERVAL);
+    },
+    MACHINE_CHECK_INTERVAL
+  );
 
 /*
- * Empêche le timer de garder
- * le processus Node.js ouvert tout seul.
+ * Le timer ne doit pas empêcher Node.js
+ * de s'arrêter normalement.
  */
 machinePresenceTimer.unref();
 
-/*
- * ===============================
- * MIDDLEWARES
- * ===============================
- */
+//======================================================
+// MIDDLEWARES
+//======================================================
 
 app.use(
-  cors(corsOptions)
+  cors(
+    corsOptions
+  )
 );
-
 
 app.use(
   express.json({
@@ -508,24 +540,10 @@ app.use(
   })
 );
 
-/*
- * ===============================
- * DÉTECTION DES MESURES ESP32
- * ===============================
- */
+//======================================================
+// DÉTECTION DES MESURES ESP32
+//======================================================
 
-/*
- * Ce middleware intercepte :
- *
- * POST /api/measurements
- *
- * La machine est déclarée en ligne
- * uniquement si l’enregistrement de la mesure
- * s’est terminé avec un statut HTTP réussi.
- *
- * Une mesure invalide ou refusée ne doit pas
- * faire apparaître la machine comme connectée.
- */
 app.use(
   "/api/measurements",
   (
@@ -534,7 +552,8 @@ app.use(
     next
   ) => {
     if (
-      req.method !== "POST"
+      req.method !==
+      "POST"
     ) {
       return next();
     }
@@ -548,12 +567,18 @@ app.use(
       return next();
     }
 
+    /*
+     * On attend que la route ait réellement
+     * accepté et enregistré la mesure.
+     */
     res.on(
       "finish",
       () => {
         if (
-          res.statusCode >= 200 &&
-          res.statusCode < 300
+          res.statusCode >=
+            200 &&
+          res.statusCode <
+            300
         ) {
           markMachineOnline(
             machineId,
@@ -567,15 +592,16 @@ app.use(
   }
 );
 
-/*
- * ===============================
- * ROUTE PRINCIPALE
- * ===============================
- */
+//======================================================
+// ROUTE PRINCIPALE
+//======================================================
 
 app.get(
   "/",
-  (req, res) => {
+  (
+    req,
+    res
+  ) => {
     res.json({
       success: true,
 
@@ -588,20 +614,23 @@ app.get(
   }
 );
 
-/*
- * ===============================
- * ROUTE DE TEST DU SERVEUR
- * ===============================
- */
+//======================================================
+// TEST DU SERVEUR
+//======================================================
 
 app.get(
   "/api/health",
-  (req, res) => {
+  (
+    req,
+    res
+  ) => {
     const onlineMachines =
       Array.from(
         connectedMachines.keys()
       ).filter(
-        (machineId) =>
+        (
+          machineId
+        ) =>
           getMachinePresence(
             machineId
           ).online
@@ -610,7 +639,8 @@ app.get(
     res.json({
       success: true,
 
-      server: "online",
+      server:
+        "online",
 
       database:
         databaseConnected
@@ -628,11 +658,9 @@ app.get(
   }
 );
 
-/*
- * ===============================
- * STATUT D’UNE MACHINE
- * ===============================
- */
+//======================================================
+// STATUT D'UNE MACHINE
+//======================================================
 
 app.get(
   "/api/machines/:machineId/status",
@@ -646,14 +674,16 @@ app.get(
       );
 
     if (!machineId) {
-      return res.status(
-        400
-      ).json({
-        success: false,
+      return res
+        .status(
+          400
+        )
+        .json({
+          success: false,
 
-        message:
-          "Identifiant machine invalide",
-      });
+          message:
+            "Identifiant machine invalide",
+        });
     }
 
     const presence =
@@ -684,67 +714,101 @@ app.get(
   }
 );
 
+//======================================================
+// AUTHENTIFICATION
+//======================================================
+
 /*
- * ===============================
- * ROUTES API
- * ===============================
+ * Routes prévues :
+ *
+ * POST /api/auth/login
+ * GET  /api/auth/me
+ *
+ * Plus tard :
+ * POST /api/auth/logout
+ * POST /api/auth/change-password
  */
+app.use(
+  "/api/auth",
+  authRoutes
+);
+
+//======================================================
+// ROUTES API MACHINE
+//======================================================
 
 app.use(
   "/api",
   machineRoutes
 );
 
+//======================================================
+// ROUTES ALERTES
+//======================================================
+
 app.use(
   "/api/alerts",
   alertRoutes
 );
+
+//======================================================
+// ROUTES SEUILS
+//======================================================
 
 app.use(
   "/api/thresholds",
   thresholdRoutes
 );
 
+//======================================================
+// ROUTES CONFIGURATION
+//======================================================
+
 app.use(
   "/api/configuration",
   configurationRoutes
 );
+
+//======================================================
+// ROUTES FIRMWARE / OTA
+//======================================================
 
 app.use(
   "/api/firmware",
   firmwareRoutes
 );
 
-/*
- * ===============================
- * ROUTE INTROUVABLE
- * ===============================
- */
+//======================================================
+// ROUTE INTROUVABLE
+//======================================================
 
 app.use(
-  (req, res) => {
-    res.status(
-      404
-    ).json({
-      success: false,
+  (
+    req,
+    res
+  ) => {
+    res
+      .status(
+        404
+      )
+      .json({
+        success: false,
 
-      message:
-        "Route API introuvable",
+        message:
+          "Route API introuvable",
 
-      method:
-        req.method,
+        method:
+          req.method,
 
-      path:
-        req.originalUrl,
-    });
+        path:
+          req.originalUrl,
+      });
   }
 );
 
-/*
- * ===============================
- * GESTION DES ERREURS
- * ===============================
- */
+//======================================================
+// GESTION DES ERREURS
+//======================================================
 
 app.use(
   (
@@ -763,39 +827,51 @@ app.use(
         "Origine non autorisée par CORS"
       )
     ) {
-      return res.status(
-        403
-      ).json({
+      return res
+        .status(
+          403
+        )
+        .json({
+          success: false,
+
+          message:
+            error.message,
+        });
+    }
+
+    return res
+      .status(
+        500
+      )
+      .json({
         success: false,
 
         message:
+          "Erreur interne du serveur",
+
+        /*
+         * On conserve details pour le moment
+         * pendant le développement.
+         *
+         * Plus tard, en production stricte,
+         * il faudra éviter de renvoyer certains
+         * détails techniques sensibles.
+         */
+        details:
           error.message,
       });
-    }
-
-    return res.status(
-      500
-    ).json({
-      success: false,
-
-      message:
-        "Erreur interne du serveur",
-
-      details:
-        error.message,
-    });
   }
 );
 
-/*
- * ===============================
- * ÉVÉNEMENTS SOCKET.IO
- * ===============================
- */
+//======================================================
+// SOCKET.IO
+//======================================================
 
 io.on(
   "connection",
-  (socket) => {
+  (
+    socket
+  ) => {
     console.log(
       "Client Socket.IO connecté :",
       socket.id
@@ -814,6 +890,10 @@ io.on(
       }
     );
 
+    //==================================================
+    // REJOINDRE UNE MACHINE
+    //==================================================
+
     socket.on(
       "machine:join",
       (
@@ -826,7 +906,9 @@ io.on(
             machineId
           );
 
-        if (!normalizedId) {
+        if (
+          !normalizedId
+        ) {
           socket.emit(
             "machine:error",
             {
@@ -843,7 +925,9 @@ io.on(
             normalizedId
           );
 
-        socket.join(room);
+        socket.join(
+          room
+        );
 
         const presence =
           getMachinePresence(
@@ -878,6 +962,10 @@ io.on(
           }
         );
 
+        /*
+         * Si on possède déjà la dernière mesure,
+         * on l'envoie immédiatement au navigateur.
+         */
         if (
           presence.online &&
           presence.lastData
@@ -890,7 +978,8 @@ io.on(
               machineId:
                 normalizedId,
 
-              online: true,
+              online:
+                true,
 
               status:
                 "online",
@@ -899,6 +988,10 @@ io.on(
         }
       }
     );
+
+    //==================================================
+    // QUITTER UNE MACHINE
+    //==================================================
 
     socket.on(
       "machine:leave",
@@ -912,7 +1005,9 @@ io.on(
             machineId
           );
 
-        if (!normalizedId) {
+        if (
+          !normalizedId
+        ) {
           return;
         }
 
@@ -923,6 +1018,10 @@ io.on(
         );
       }
     );
+
+    //==================================================
+    // DEMANDE DU STATUT MACHINE
+    //==================================================
 
     socket.on(
       "machine:status",
@@ -936,7 +1035,9 @@ io.on(
             machineId
           );
 
-        if (!normalizedId) {
+        if (
+          !normalizedId
+        ) {
           socket.emit(
             "machine:error",
             {
@@ -983,9 +1084,15 @@ io.on(
       }
     );
 
+    //==================================================
+    // DÉCONNEXION
+    //==================================================
+
     socket.on(
       "disconnect",
-      (reason) => {
+      (
+        reason
+      ) => {
         console.log(
           "Client Socket.IO déconnecté :",
           socket.id,
@@ -993,34 +1100,40 @@ io.on(
         );
 
         /*
-         * On ne déclare pas la machine
-         * hors ligne ici.
+         * On ne met PAS une machine hors ligne ici.
          *
-         * Ce socket appartient normalement
-         * au navigateur et non à l’ESP32.
+         * Cette connexion Socket.IO appartient
+         * au navigateur et non à l'ESP32.
          */
       }
     );
   }
 );
 
-/*
- * ===============================
- * DÉMARRAGE DU SERVEUR
- * ===============================
- */
+//======================================================
+// DÉMARRAGE DU SERVEUR
+//======================================================
 
 async function startServer() {
   try {
     databaseConnected =
       await testDatabaseConnection();
 
-    if (!databaseConnected) {
+    if (
+      !databaseConnected
+    ) {
       throw new Error(
         "Impossible de se connecter à la base MySQL"
       );
     }
 
+    /*
+     * Création / mise à jour automatique
+     * des tables nécessaires.
+     *
+     * Nous ajouterons également ici
+     * la table users dans initDatabase.js.
+     */
     await initializeDatabase();
 
     server.listen(
@@ -1037,39 +1150,56 @@ async function startServer() {
         console.log(
           "===================================="
         );
+
         console.log(
           `HTTP     : http://localhost:${PORT}`
         );
+
         console.log(
           `Clients  : ${allowedOrigins.join(", ")}`
         );
+
         console.log(
           "SocketIO : OK"
         );
+
         console.log(
           "MySQL    : OK"
         );
+
         console.log(
           "Tables   : OK"
         );
+
         console.log(
           "Présence : OK"
         );
+
+        console.log(
+          "Auth     : OK"
+        );
+
         console.log(
           "===================================="
         );
       }
     );
-  } catch (error) {
-    databaseConnected = false;
+  } catch (
+    error
+  ) {
+    databaseConnected =
+      false;
 
     console.error("");
+
     console.error(
       "Échec du démarrage du serveur :",
       error
     );
 
-    process.exit(1);
+    process.exit(
+      1
+    );
   }
 }
 
