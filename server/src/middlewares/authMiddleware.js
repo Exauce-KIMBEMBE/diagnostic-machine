@@ -25,7 +25,7 @@ function getJwtSecret() {
 // AUTHENTIFICATION
 //======================================================
 
-export function authenticate(
+export async function authenticate(
   req,
   res,
   next
@@ -44,13 +44,17 @@ export function authenticate(
         });
     }
 
+    //==================================================
+    // EXTRACTION DU TOKEN
+    //==================================================
+
     const [
       scheme,
       token,
     ] =
-      authorizationHeader.split(
-        " "
-      );
+      authorizationHeader
+        .trim()
+        .split(/\s+/);
 
     if (
       scheme !== "Bearer" ||
@@ -65,16 +69,26 @@ export function authenticate(
         });
     }
 
+    //==================================================
+    // VÉRIFICATION JWT
+    //==================================================
+
     const decoded =
       jwt.verify(
         token,
         getJwtSecret()
       );
 
+    const userId =
+      Number(
+        decoded?.id
+      );
+
     if (
-      !decoded ||
-      !decoded.id ||
-      !decoded.role
+      !Number.isInteger(
+        userId
+      ) ||
+      userId <= 0
     ) {
       return res
         .status(401)
@@ -85,28 +99,131 @@ export function authenticate(
         });
     }
 
+    //==================================================
+    // RÉCUPÉRATION DE L'UTILISATEUR ACTUEL
+    //==================================================
+
+    /*
+     * IMPORTANT :
+     *
+     * On ne fait pas confiance au rôle stocké
+     * dans le JWT.
+     *
+     * Cela permet :
+     *
+     * - de transformer client -> manager
+     *   directement dans MySQL
+     *
+     * - de transformer manager -> client
+     *
+     * - de désactiver immédiatement un compte
+     *
+     * sans attendre l'expiration du JWT.
+     */
+
+    const [
+      rows,
+    ] =
+      await pool.query(
+        `
+        SELECT
+          id,
+          name,
+          email,
+          role,
+          active
+        FROM users
+        WHERE id = ?
+        LIMIT 1
+        `,
+        [
+          userId,
+        ]
+      );
+
+    if (
+      rows.length === 0
+    ) {
+      return res
+        .status(401)
+        .json({
+          success: false,
+          message:
+            "Utilisateur introuvable",
+        });
+    }
+
+    const user =
+      rows[0];
+
+    //==================================================
+    // COMPTE ACTIF
+    //==================================================
+
+    if (
+      user.active !== 1 &&
+      user.active !== true
+    ) {
+      return res
+        .status(403)
+        .json({
+          success: false,
+          message:
+            "Compte désactivé",
+        });
+    }
+
+    //==================================================
+    // RÔLE
+    //==================================================
+
+    if (
+      ![
+        "manager",
+        "client",
+      ].includes(
+        user.role
+      )
+    ) {
+      return res
+        .status(403)
+        .json({
+          success: false,
+          message:
+            "Rôle utilisateur invalide",
+        });
+    }
+
+    //==================================================
+    // UTILISATEUR AUTHENTIFIÉ
+    //==================================================
+
     req.user = {
       id:
         Number(
-          decoded.id
+          user.id
         ),
 
       name:
-        decoded.name ??
+        user.name ??
         null,
 
       email:
-        decoded.email ??
+        user.email ??
         null,
 
       role:
-        decoded.role,
+        user.role,
     };
 
     return next();
   } catch (
     error
   ) {
+    //==================================================
+    // TOKEN EXPIRÉ
+    //==================================================
+
     if (
       error.name ===
       "TokenExpiredError"
@@ -120,9 +237,15 @@ export function authenticate(
         });
     }
 
+    //==================================================
+    // TOKEN JWT INVALIDE
+    //==================================================
+
     if (
       error.name ===
-      "JsonWebTokenError"
+      "JsonWebTokenError" ||
+      error.name ===
+      "NotBeforeError"
     ) {
       return res
         .status(401)
@@ -132,6 +255,10 @@ export function authenticate(
             "Token invalide",
         });
     }
+
+    //==================================================
+    // ERREUR SERVEUR
+    //==================================================
 
     console.error(
       "Erreur d'authentification :",
@@ -252,12 +379,15 @@ export async function requireMachineAccess(
     // RÉCUPÉRATION DE L'IDENTIFIANT MACHINE
     //==================================================
 
+    const rawMachineId =
+      req.params?.machineId ??
+      req.query?.machineId ??
+      req.body?.machineId ??
+      req.body?.machine_id;
+
     const machineId =
       Number(
-        req.params?.machineId ??
-        req.query?.machineId ??
-        req.body?.machineId ??
-        req.body?.machine_id
+        rawMachineId
       );
 
     if (
@@ -276,13 +406,46 @@ export async function requireMachineAccess(
     }
 
     //==================================================
+    // VÉRIFIER QUE LA MACHINE EXISTE
+    //==================================================
+
+    const [
+      machineRows,
+    ] =
+      await pool.query(
+        `
+        SELECT
+          id
+        FROM machines
+        WHERE id = ?
+        LIMIT 1
+        `,
+        [
+          machineId,
+        ]
+      );
+
+    if (
+      machineRows.length === 0
+    ) {
+      return res
+        .status(404)
+        .json({
+          success: false,
+          message:
+            "Machine introuvable",
+        });
+    }
+
+    //==================================================
     // MANAGER
     //==================================================
 
     /*
-     * Le manager a accès à toutes
-     * les machines.
+     * Le manager a accès
+     * à toutes les machines.
      */
+
     if (
       req.user.role ===
       "manager"
@@ -314,6 +477,22 @@ export async function requireMachineAccess(
     // VÉRIFICATION UTILISATEUR / MACHINE
     //==================================================
 
+    /*
+     * Un client peut avoir plusieurs machines.
+     *
+     * Exemple dans user_machines :
+     *
+     * user_id | machine_id
+     * --------|-----------
+     *    5    |     1
+     *    5    |     2
+     *    5    |     6
+     *
+     * Cette requête vérifie uniquement
+     * que la machine demandée fait partie
+     * des machines attribuées à cet utilisateur.
+     */
+
     const [
       rows,
     ] =
@@ -343,6 +522,10 @@ export async function requireMachineAccess(
             "Vous n'avez pas accès à cette machine",
         });
     }
+
+    //==================================================
+    // MACHINE AUTORISÉE
+    //==================================================
 
     req.machineId =
       machineId;
