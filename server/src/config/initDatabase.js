@@ -1,4 +1,8 @@
-import { pool } from "./database.js";
+import crypto from "crypto";
+
+import {
+  pool,
+} from "./database.js";
 
 //======================================================
 // VÉRIFICATION DE L'EXISTENCE D'UNE COLONNE
@@ -178,6 +182,121 @@ async function removeMachineIdDefault(
 }
 
 //======================================================
+// GÉNÉRATION D'UN CODE D'ACTIVATION
+//======================================================
+
+function generateActivationCode() {
+  /*
+   * Exemple :
+   *
+   * A7F4C9D2B681
+   *
+   * 12 caractères hexadécimaux.
+   *
+   * Ce code est destiné à être fourni
+   * avec la machine au propriétaire.
+   */
+
+  return crypto
+    .randomBytes(6)
+    .toString("hex")
+    .toUpperCase();
+}
+
+//======================================================
+// CRÉATION D'UN CODE UNIQUE
+//======================================================
+
+async function generateUniqueActivationCode(
+  connection
+) {
+  /*
+   * La probabilité de collision est déjà
+   * extrêmement faible.
+   *
+   * On vérifie quand même la base.
+   */
+
+  for (
+    let attempt = 0;
+    attempt < 20;
+    attempt += 1
+  ) {
+    const activationCode =
+      generateActivationCode();
+
+    const [rows] =
+      await connection.query(
+        `
+        SELECT id
+        FROM machines
+        WHERE activation_code = ?
+        LIMIT 1
+        `,
+        [
+          activationCode,
+        ]
+      );
+
+    if (
+      rows.length === 0
+    ) {
+      return activationCode;
+    }
+  }
+
+  throw new Error(
+    "Impossible de générer un code d'activation unique"
+  );
+}
+
+//======================================================
+// CODES D'ACTIVATION DES MACHINES EXISTANTES
+//======================================================
+
+async function initializeMachineActivationCodes(
+  connection
+) {
+  const [machines] =
+    await connection.query(
+      `
+      SELECT
+        id,
+        activation_code
+      FROM machines
+      WHERE activation_code IS NULL
+         OR activation_code = ''
+      `
+    );
+
+  for (
+    const machine
+    of machines
+  ) {
+    const activationCode =
+      await generateUniqueActivationCode(
+        connection
+      );
+
+    await connection.query(
+      `
+      UPDATE machines
+      SET activation_code = ?
+      WHERE id = ?
+      `,
+      [
+        activationCode,
+        machine.id,
+      ]
+    );
+
+    console.log(
+      `Code d'activation généré pour la machine ${machine.id}`
+    );
+  }
+}
+
+//======================================================
 // INITIALISATION DE LA BASE
 //======================================================
 
@@ -201,14 +320,46 @@ export async function initializeDatabase() {
         serial_number VARCHAR(100)
         UNIQUE,
 
+        activation_code VARCHAR(64),
+
         location VARCHAR(150),
 
         description TEXT,
 
         created_at TIMESTAMP
-        DEFAULT CURRENT_TIMESTAMP
+        DEFAULT CURRENT_TIMESTAMP,
+
+        UNIQUE KEY unique_machine_activation_code (
+          activation_code
+        )
       )
     `);
+
+    //==================================================
+    // MIGRATION activation_code
+    //==================================================
+
+    /*
+     * Si la table machines existait avant
+     * l'ajout du système d'activation,
+     * la colonne est créée automatiquement.
+     */
+
+    await addColumnIfMissing(
+      connection,
+      "machines",
+      "activation_code",
+      "VARCHAR(64) NULL AFTER serial_number"
+    );
+
+    await addUniqueIndexIfMissing(
+      connection,
+      "machines",
+      "unique_machine_activation_code",
+      [
+        "activation_code",
+      ]
+    );
 
     //==================================================
     // MACHINE PAR DÉFAUT
@@ -228,6 +379,21 @@ export async function initializeDatabase() {
         'Usine'
       )
     `);
+
+    //==================================================
+    // INITIALISATION DES CODES D'ACTIVATION
+    //==================================================
+
+    /*
+     * Les machines déjà présentes dans la base
+     * peuvent ne pas avoir de code.
+     *
+     * On leur en génère automatiquement un.
+     */
+
+    await initializeMachineActivationCodes(
+      connection
+    );
 
     //==================================================
     // UTILISATEURS
@@ -296,19 +462,12 @@ export async function initializeDatabase() {
      *
      * Un utilisateur peut avoir PLUSIEURS machines.
      *
-     * Exemple :
-     *
-     * Client A
-     *   -> Machine 1
-     *   -> Machine 2
-     *   -> Machine 3
-     *
-     * Une machine ne peut cependant appartenir
+     * Une machine ne peut appartenir
      * qu'à UN SEUL client.
      *
-     * Les managers n'ont pas besoin d'être
-     * associés ici car ils ont accès
-     * à toutes les machines.
+     * Les managers n'ont pas besoin
+     * d'association car ils peuvent
+     * accéder à toutes les machines.
      */
 
     await connection.query(`
@@ -352,27 +511,14 @@ export async function initializeDatabase() {
     `);
 
     //==================================================
-    // MIGRATION D'UNE ANCIENNE TABLE user_machines
+    // MIGRATION user_machines
     //==================================================
-
-    /*
-     * Une version précédente pouvait contenir
-     * un index empêchant un utilisateur
-     * d'avoir plusieurs machines.
-     *
-     * On le supprime s'il existe.
-     */
 
     await removeIndexIfExists(
       connection,
       "user_machines",
       "unique_user_machine_user"
     );
-
-    /*
-     * En revanche, une machine reste attribuée
-     * à un seul utilisateur.
-     */
 
     await addUniqueIndexIfMissing(
       connection,
@@ -486,11 +632,6 @@ export async function initializeDatabase() {
         ON DELETE CASCADE
       )
     `);
-
-    /*
-     * Anciennes bases :
-     * suppression du DEFAULT 1.
-     */
 
     await removeMachineIdDefault(
       connection,
@@ -644,232 +785,30 @@ export async function initializeDatabase() {
     // SEUILS PAR DÉFAUT MACHINE 1
     //==================================================
 
-    /*
-     * Ici machine_id = 1 est volontaire :
-     * nous initialisons explicitement
-     * la machine principale.
-     */
-
     const defaultThresholds = [
-      [
-        1,
-        "L1",
-        "voltage",
-        210,
-        240,
-        null,
-        null,
-        "V",
-      ],
+      [1, "L1", "voltage", 210, 240, null, null, "V"],
+      [1, "L1", "current", 0, 10, null, null, "A"],
+      [1, "L1", "power", 0, 2200, null, null, "W"],
+      [1, "L1", "frequency", 49, 51, null, null, "Hz"],
+      [1, "L1", "powerFactor", 0.8, 1, null, null, ""],
 
-      [
-        1,
-        "L1",
-        "current",
-        0,
-        10,
-        null,
-        null,
-        "A",
-      ],
+      [1, "L2", "voltage", 210, 240, null, null, "V"],
+      [1, "L2", "current", 0, 10, null, null, "A"],
+      [1, "L2", "power", 0, 2200, null, null, "W"],
+      [1, "L2", "frequency", 49, 51, null, null, "Hz"],
+      [1, "L2", "powerFactor", 0.8, 1, null, null, ""],
 
-      [
-        1,
-        "L1",
-        "power",
-        0,
-        2200,
-        null,
-        null,
-        "W",
-      ],
+      [1, "L3", "voltage", 210, 240, null, null, "V"],
+      [1, "L3", "current", 0, 10, null, null, "A"],
+      [1, "L3", "power", 0, 2200, null, null, "W"],
+      [1, "L3", "frequency", 49, 51, null, null, "Hz"],
+      [1, "L3", "powerFactor", 0.8, 1, null, null, ""],
 
-      [
-        1,
-        "L1",
-        "frequency",
-        49,
-        51,
-        null,
-        null,
-        "Hz",
-      ],
-
-      [
-        1,
-        "L1",
-        "powerFactor",
-        0.8,
-        1,
-        null,
-        null,
-        "",
-      ],
-
-      [
-        1,
-        "L2",
-        "voltage",
-        210,
-        240,
-        null,
-        null,
-        "V",
-      ],
-
-      [
-        1,
-        "L2",
-        "current",
-        0,
-        10,
-        null,
-        null,
-        "A",
-      ],
-
-      [
-        1,
-        "L2",
-        "power",
-        0,
-        2200,
-        null,
-        null,
-        "W",
-      ],
-
-      [
-        1,
-        "L2",
-        "frequency",
-        49,
-        51,
-        null,
-        null,
-        "Hz",
-      ],
-
-      [
-        1,
-        "L2",
-        "powerFactor",
-        0.8,
-        1,
-        null,
-        null,
-        "",
-      ],
-
-      [
-        1,
-        "L3",
-        "voltage",
-        210,
-        240,
-        null,
-        null,
-        "V",
-      ],
-
-      [
-        1,
-        "L3",
-        "current",
-        0,
-        10,
-        null,
-        null,
-        "A",
-      ],
-
-      [
-        1,
-        "L3",
-        "power",
-        0,
-        2200,
-        null,
-        null,
-        "W",
-      ],
-
-      [
-        1,
-        "L3",
-        "frequency",
-        49,
-        51,
-        null,
-        null,
-        "Hz",
-      ],
-
-      [
-        1,
-        "L3",
-        "powerFactor",
-        0.8,
-        1,
-        null,
-        null,
-        "",
-      ],
-
-      [
-        1,
-        "temperature",
-        "temperature",
-        -20,
-        125,
-        60,
-        80,
-        "°C",
-      ],
-
-      [
-        1,
-        "flow",
-        "flowRate",
-        5,
-        60,
-        null,
-        null,
-        "L/min",
-      ],
-
-      [
-        1,
-        "tank",
-        "levelPercent",
-        0,
-        100,
-        20,
-        10,
-        "%",
-      ],
-
-      [
-        1,
-        "tank",
-        "distanceCm",
-        20,
-        600,
-        null,
-        null,
-        "cm",
-      ],
-
-      [
-        1,
-        "tank",
-        "volumeLiters",
-        0,
-        1000,
-        null,
-        null,
-        "L",
-      ],
+      [1, "temperature", "temperature", -20, 125, 60, 80, "°C"],
+      [1, "flow", "flowRate", 5, 60, null, null, "L/min"],
+      [1, "tank", "levelPercent", 0, 100, 20, 10, "%"],
+      [1, "tank", "distanceCm", 20, 600, null, null, "cm"],
+      [1, "tank", "volumeLiters", 0, 1000, null, null, "L"],
     ];
 
     for (
@@ -985,6 +924,10 @@ export async function initializeDatabase() {
     );
 
     console.log(
+      "Codes activation           OK"
+    );
+
+    console.log(
       "Table users                OK"
     );
 
@@ -1023,7 +966,9 @@ export async function initializeDatabase() {
     console.log(
       "===================================="
     );
-  } catch (error) {
+  } catch (
+    error
+  ) {
     console.error(
       "Erreur pendant l'initialisation de la base :",
       error
