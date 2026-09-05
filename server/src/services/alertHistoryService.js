@@ -1,16 +1,126 @@
-import { pool } from "../config/database.js";
+import {
+  pool,
+} from "../config/database.js";
+
+//======================================================
+// OUTILS
+//======================================================
+
+function normalizeMachineId(
+  machineId
+) {
+  const value =
+    Number(
+      machineId
+    );
+
+  if (
+    !Number.isInteger(value) ||
+    value <= 0
+  ) {
+    return null;
+  }
+
+  return value;
+}
+
+//======================================================
+// ENREGISTRER DES ALERTES
+//======================================================
 
 export async function saveAlerts(
   alerts = [],
-  machineId = 1
+  machineId
 ) {
-  if (!Array.isArray(alerts) || alerts.length === 0) {
+  //====================================================
+  // VALIDATION ALERTES
+  //====================================================
+
+  if (
+    !Array.isArray(alerts) ||
+    alerts.length === 0
+  ) {
     return [];
   }
 
+  //====================================================
+  // VALIDATION MACHINE
+  //====================================================
+
+  const normalizedMachineId =
+    normalizeMachineId(
+      machineId
+    );
+
+  if (
+    !normalizedMachineId
+  ) {
+    throw new Error(
+      "Identifiant machine invalide lors de l'enregistrement des alertes"
+    );
+  }
+
+  //====================================================
+  // ENREGISTREMENT
+  //====================================================
+
   const savedAlerts = [];
 
-  for (const alert of alerts) {
+  for (
+    const alert of alerts
+  ) {
+    if (
+      !alert ||
+      typeof alert !==
+        "object"
+    ) {
+      continue;
+    }
+
+    const source =
+      alert.source !==
+      undefined
+        ? String(
+            alert.source
+          )
+        : null;
+
+    const level =
+      alert.level !==
+      undefined
+        ? String(
+            alert.level
+          )
+        : null;
+
+    const message =
+      alert.message !==
+      undefined
+        ? String(
+            alert.message
+          )
+        : null;
+
+    const measuredValue =
+      alert.value !==
+      undefined &&
+      alert.value !==
+      null
+        ? String(
+            alert.value
+          )
+        : null;
+
+    const thresholdValue =
+      alert.limit !==
+      undefined &&
+      alert.limit !==
+      null
+        ? String(
+            alert.limit
+          )
+        : null;
+
     const sql = `
       INSERT INTO machine_alerts (
         machine_id,
@@ -20,44 +130,99 @@ export async function saveAlerts(
         measured_value,
         threshold_value
       )
-      VALUES (?, ?, ?, ?, ?, ?)
+      VALUES (
+        ?,
+        ?,
+        ?,
+        ?,
+        ?,
+        ?
+      )
     `;
 
     const values = [
-      machineId,
-      alert.source,
-      alert.level,
-      alert.message,
-      alert.value !== undefined
-        ? String(alert.value)
-        : null,
-      alert.limit !== undefined
-        ? String(alert.limit)
-        : null,
+      normalizedMachineId,
+      source,
+      level,
+      message,
+      measuredValue,
+      thresholdValue,
     ];
 
-    const [result] = await pool.query(sql, values);
+    const [
+      result,
+    ] =
+      await pool.query(
+        sql,
+        values
+      );
 
     savedAlerts.push({
       ...alert,
-      databaseId: result.insertId,
-      machineId,
+
+      databaseId:
+        Number(
+          result.insertId
+        ),
+
+      machineId:
+        normalizedMachineId,
     });
   }
 
   return savedAlerts;
 }
 
+//======================================================
+// RÉCUPÉRER L'HISTORIQUE DES ALERTES
+//======================================================
+
 export async function getAlerts(
   limit = 100,
-  machineId = null
+  machineId
 ) {
-  const safeLimit = Math.min(
-    Math.max(Number(limit) || 100, 1),
-    1000
-  );
+  //====================================================
+  // MACHINE
+  //====================================================
 
-  let sql = `
+  const normalizedMachineId =
+    normalizeMachineId(
+      machineId
+    );
+
+  if (
+    !normalizedMachineId
+  ) {
+    throw new Error(
+      "Identifiant machine invalide pour la récupération des alertes"
+    );
+  }
+
+  //====================================================
+  // LIMITE
+  //====================================================
+
+  const numericLimit =
+    Number(
+      limit
+    );
+
+  const safeLimit =
+    Number.isInteger(
+      numericLimit
+    ) &&
+    numericLimit > 0
+      ? Math.min(
+          numericLimit,
+          500
+        )
+      : 100;
+
+  //====================================================
+  // REQUÊTE
+  //====================================================
+
+  const sql = `
     SELECT
       id,
       machine_id,
@@ -69,35 +234,61 @@ export async function getAlerts(
       acknowledged,
       acknowledged_at,
       created_at
+
     FROM machine_alerts
-  `;
 
-  const values = [];
+    WHERE machine_id = ?
 
-  if (machineId) {
-    sql += `
-      WHERE machine_id = ?
-    `;
+    ORDER BY
+      created_at DESC,
+      id DESC
 
-    values.push(Number(machineId));
-  }
-
-  sql += `
-    ORDER BY created_at DESC
     LIMIT ?
   `;
 
-  values.push(safeLimit);
-
-  const [rows] = await pool.query(sql, values);
+  const [
+    rows,
+  ] =
+    await pool.query(
+      sql,
+      [
+        normalizedMachineId,
+        safeLimit,
+      ]
+    );
 
   return rows;
 }
 
+//======================================================
+// RÉCUPÉRER LES ALERTES ACTIVES
+//======================================================
+
 export async function getActiveAlerts(
-  machineId = null
+  machineId
 ) {
-  let sql = `
+  //====================================================
+  // MACHINE
+  //====================================================
+
+  const normalizedMachineId =
+    normalizeMachineId(
+      machineId
+    );
+
+  if (
+    !normalizedMachineId
+  ) {
+    throw new Error(
+      "Identifiant machine invalide pour la récupération des alertes actives"
+    );
+  }
+
+  //====================================================
+  // REQUÊTE
+  //====================================================
+
+  const sql = `
     SELECT
       id,
       machine_id,
@@ -109,40 +300,72 @@ export async function getActiveAlerts(
       acknowledged,
       acknowledged_at,
       created_at
+
     FROM machine_alerts
-    WHERE acknowledged = FALSE
+
+    WHERE machine_id = ?
+      AND acknowledged = FALSE
+
+    ORDER BY
+      created_at DESC,
+      id DESC
   `;
 
-  const values = [];
-
-  if (machineId) {
-    sql += `
-      AND machine_id = ?
-    `;
-
-    values.push(Number(machineId));
-  }
-
-  sql += `
-    ORDER BY created_at DESC
-  `;
-
-  const [rows] = await pool.query(sql, values);
+  const [
+    rows,
+  ] =
+    await pool.query(
+      sql,
+      [
+        normalizedMachineId,
+      ]
+    );
 
   return rows;
 }
 
-export async function acknowledgeAlert(alertId) {
-  const [result] = await pool.query(
-    `
-    UPDATE machine_alerts
-    SET
-      acknowledged = TRUE,
-      acknowledged_at = NOW()
-    WHERE id = ?
-    `,
-    [Number(alertId)]
-  );
+//======================================================
+// ACQUITTER UNE ALERTE
+//======================================================
 
-  return result.affectedRows > 0;
+export async function acknowledgeAlert(
+  alertId
+) {
+  const normalizedAlertId =
+    Number(
+      alertId
+    );
+
+  if (
+    !Number.isInteger(
+      normalizedAlertId
+    ) ||
+    normalizedAlertId <= 0
+  ) {
+    return false;
+  }
+
+  const [
+    result,
+  ] =
+    await pool.query(
+      `
+      UPDATE machine_alerts
+
+      SET
+        acknowledged = TRUE,
+        acknowledged_at = NOW()
+
+      WHERE id = ?
+        AND acknowledged = FALSE
+      `,
+      [
+        normalizedAlertId,
+      ]
+    );
+
+  return (
+    result.affectedRows >
+    0
+  );
 }
